@@ -1,22 +1,25 @@
 <template>
   <div class="upload-container">
-    <h1>上傳圖片</h1>
+    <h1 class="ds-page-title">上傳圖片</h1>
+    <p class="ds-page-desc page-desc">先上傳標準答案卷與學生考卷，再進入標註。</p>
+
     <div class="upload-area">
 
       <!-- 標準答案卷 -->
-      <div class="upload-section">
-        <h2>標準答案卷</h2>
+      <section class="upload-section">
+        <h2 class="ds-section-title section-title">標準答案卷</h2>
 
         <!-- 未選擇時：上傳 or 選模板 並排 -->
         <div v-if="!masterFile" class="master-input-area">
           <div
-            class="drop-zone"
+            class="ds-dropzone"
             @dragover.prevent="handleDragOver('master')"
             @dragleave.prevent="handleDragLeave('master')"
             @drop.prevent="handleDrop('master', $event)"
-            :class="{ 'drag-over': isDraggingMaster }"
+            @click="triggerFileInput('master')"
+            :class="{ 'is-dragover': isDraggingMaster }"
           >
-            <div class="upload-icon">📁</div>
+            <span class="ds-dropzone__icon"><Upload :size="18" /></span>
             <p>拖曳或點擊上傳 1 張標準答案卷</p>
             <input
               type="file"
@@ -25,49 +28,53 @@
               accept="image/*"
               style="display: none"
             />
-            <button @click="triggerFileInput('master')" class="select-btn">選擇標準答案卷</button>
+            <button @click.stop="triggerFileInput('master')" class="ds-btn ds-btn--sm">選擇標準答案卷</button>
           </div>
 
           <div class="or-divider">或</div>
 
-          <div class="drop-zone template-zone" @click="openTemplateModal">
-            <div class="upload-icon">📋</div>
+          <div class="ds-dropzone ds-dropzone--accent" @click="openTemplateModal">
+            <span class="ds-dropzone__icon"><ClipboardList :size="18" /></span>
             <p>使用已儲存的答案卷</p>
-            <button class="select-btn template-btn" @click.stop="openTemplateModal">選擇已儲存答案卷</button>
+            <button class="ds-btn ds-btn--sm" @click.stop="openTemplateModal">選擇已儲存答案卷</button>
           </div>
         </div>
 
         <!-- 已選擇後：上資訊下圖 -->
-        <div v-if="masterFile" class="master-preview">
+        <div v-if="masterFile" class="ds-card master-preview">
           <div class="master-preview-info">
             <div class="filename-row">
-              <p class="file-name">{{ masterFile.name }}</p>
-              <button @click="clearMaster" class="remove-btn small-btn">移除</button>
+              <FileText :size="15" class="file-ic" />
+              <span class="file-name">{{ masterFile.name }}</span>
+              <span v-if="isFromTemplate" class="ds-badge ds-badge--accent">來自已儲存模板</span>
+              <button @click="clearMaster" class="ds-btn ds-btn--danger ds-btn--sm">移除</button>
             </div>
             <input
               v-if="!isFromTemplate"
               type="text"
               v-model="masterExamName"
               placeholder="請輸入考卷名稱"
-              class="exam-name-input"
+              class="ds-input"
             />
-            <span v-else class="template-source-hint">來自已儲存模板</span>
           </div>
-          <img :src="masterFile.preview" :alt="masterFile.name" class="master-preview-image" />
+          <div class="master-preview-figure">
+            <img :src="masterFile.preview" :alt="masterFile.name" class="master-preview-image" />
+          </div>
         </div>
-      </div>
+      </section>
 
       <!-- 學生考卷 -->
-      <div class="upload-section">
-        <h2>學生考卷</h2>
+      <section class="upload-section">
+        <h2 class="ds-section-title section-title">學生考卷</h2>
         <div
-          class="drop-zone"
+          class="ds-dropzone"
           @dragover.prevent="handleDragOver('students')"
           @dragleave.prevent="handleDragLeave('students')"
           @drop.prevent="handleDrop('students', $event)"
-          :class="{ 'drag-over': isDraggingStudents }"
+          @click="triggerFileInput('students')"
+          :class="{ 'is-dragover': isDraggingStudents }"
         >
-          <div class="upload-icon">🗂️</div>
+          <span class="ds-dropzone__icon"><Files :size="18" /></span>
           <p>拖曳或點擊上傳多張學生考卷</p>
           <input
             type="file"
@@ -77,51 +84,59 @@
             accept="image/*"
             style="display: none"
           />
-          <button @click="triggerFileInput('students')" class="select-btn">選擇學生考卷</button>
+          <button @click.stop="triggerFileInput('students')" class="ds-btn ds-btn--sm">選擇學生考卷</button>
         </div>
         <div v-if="studentFiles.length > 0" class="file-list">
           <h3>已選擇圖片 ({{ studentFiles.length }})</h3>
           <div class="file-name-list">
             <div v-for="(file, index) in studentFiles" :key="index" class="file-name-item">
-              <span class="file-icon">📄</span>
+              <FileText :size="14" class="file-ic file-ic--faint" />
               <span class="file-name-text">{{ file.name }}</span>
-              <button @click="removeStudent(index)" class="remove-text-btn">移除</button>
+              <button @click="removeStudent(index)" class="ds-btn ds-btn--ghost ds-btn--sm">移除</button>
             </div>
           </div>
         </div>
-      </div>
+      </section>
     </div>
 
-    <div v-if="masterFile || studentFiles.length > 0" class="file-list">
-      <div class="action-buttons">
-        <button @click="clearAll" class="clear-btn">清除全部</button>
-        <button @click="uploadFiles" class="upload-btn" :disabled="isUploading">
-          {{ isUploading ? '上傳中...' : '上傳並標註' }}
-        </button>
-      </div>
+    <div v-if="masterFile || studentFiles.length > 0" class="action-buttons">
+      <button @click="clearAll" class="ds-btn ds-btn--ghost">清除全部</button>
+      <button @click="uploadFiles" class="ds-btn ds-btn--primary" :disabled="isUploading">
+        <Loader2 v-if="isUploading" :size="16" class="ds-spin" />
+        <Upload v-else :size="16" />
+        {{ isUploading ? '上傳中…' : '上傳並標註' }}
+      </button>
     </div>
 
     <!-- 選擇模板 Modal -->
-    <div v-if="showTemplateModal" class="modal-overlay" @click.self="closeTemplateModal">
-      <div class="modal">
-        <div class="modal-header">
+    <div v-if="showTemplateModal" class="ds-modal-overlay" @click.self="closeTemplateModal">
+      <div class="ds-modal">
+        <div class="ds-modal__header">
           <h3>選擇已儲存的答案卷模板</h3>
-          <button class="modal-close" @click="closeTemplateModal">✕</button>
+          <button class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon" @click="closeTemplateModal" title="關閉">
+            <X :size="14" />
+          </button>
         </div>
 
         <!-- 搜尋欄 -->
         <div class="modal-search">
-          <input
-            type="text"
-            v-model="searchQuery"
-            @input="onSearchInput"
-            placeholder="🔍 搜尋模板名稱..."
-            class="search-input"
-          />
+          <div class="ds-input-group">
+            <Search :size="14" />
+            <input
+              type="text"
+              v-model="searchQuery"
+              @input="onSearchInput"
+              placeholder="搜尋模板名稱…"
+              class="ds-input ds-input--sm"
+            />
+          </div>
         </div>
 
-        <div class="modal-body">
-          <div v-if="isLoadingTemplates" class="modal-status">載入中...</div>
+        <div class="ds-modal__body">
+          <div v-if="isLoadingTemplates" class="modal-status">
+            <span class="ds-spinner"></span>
+            <span>載入中…</span>
+          </div>
           <div v-else-if="templates.length === 0" class="modal-status">
             {{ searchQuery ? '找不到符合的模板' : '尚無儲存的模板' }}
           </div>
@@ -131,25 +146,31 @@
                 <!-- 名稱列（一般模式） -->
                 <div v-if="editingId !== t.id" class="template-name-row">
                   <span class="template-name">{{ t.exam_name }}</span>
-                  <button class="icon-btn" @click="startEdit(t)" title="改名">✏️</button>
+                  <button class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon" @click="startEdit(t)" title="改名">
+                    <Pencil :size="13" />
+                  </button>
                 </div>
                 <!-- 名稱列（編輯模式） -->
                 <div v-else class="template-edit-row">
                   <input
-                    class="template-name-input"
+                    class="template-name-input ds-input ds-input--sm"
                     v-model="editingName"
                     @keydown.enter="confirmEdit(t.id)"
                     @keydown.escape="cancelEdit"
                   />
-                  <button class="icon-btn confirm-icon" @click="confirmEdit(t.id)" title="確認">✔</button>
-                  <button class="icon-btn cancel-icon" @click="cancelEdit" title="取消">✕</button>
+                  <button class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon confirm-icon" @click="confirmEdit(t.id)" title="確認">
+                    <Check :size="14" />
+                  </button>
+                  <button class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon cancel-icon" @click="cancelEdit" title="取消">
+                    <X :size="14" />
+                  </button>
                 </div>
                 <p class="template-meta">{{ t.annotation_count }} 格答案區・{{ formatDate(t.created_at) }}</p>
               </div>
               <div class="template-actions">
-                <button class="select-btn small-btn" @click="selectTemplate(t)">選擇</button>
-                <button class="preview-btn small-btn" @click="previewTemplate(t.id)">預覽</button>
-                <button class="remove-btn small-btn" @click="requestDeleteTemplate(t)">刪除</button>
+                <button class="ds-btn ds-btn--primary ds-btn--sm" @click="selectTemplate(t)">選擇</button>
+                <button class="ds-btn ds-btn--sm" @click="previewTemplate(t.id)"><Eye :size="14" /> 預覽</button>
+                <button class="ds-btn ds-btn--danger ds-btn--sm" @click="requestDeleteTemplate(t)">刪除</button>
               </div>
             </div>
           </div>
@@ -160,15 +181,17 @@
           <div class="confirm-box">
             <p>確定要刪除「{{ deleteConfirmName }}」嗎？</p>
             <div class="confirm-actions">
-              <button class="cancel-confirm-btn" @click="cancelDelete">取消</button>
-              <button class="delete-confirm-btn" @click="executeDeleteTemplate">確認刪除</button>
+              <button class="ds-btn" @click="cancelDelete">取消</button>
+              <button class="ds-btn ds-btn--danger" @click="executeDeleteTemplate">確認刪除</button>
             </div>
           </div>
         </div>
 
         <!-- 圖片預覽 overlay -->
         <div v-if="previewImageUrl" class="modal-inner-overlay modal-preview-overlay">
-          <button class="preview-back-btn" @click="previewImageUrl = ''">← 返回清單</button>
+          <button class="ds-btn ds-btn--sm preview-back-btn" @click="previewImageUrl = ''">
+            <ArrowLeft :size="14" /> 返回清單
+          </button>
           <img :src="previewImageUrl" class="preview-full-img" alt="模板預覽" />
         </div>
       </div>
@@ -180,6 +203,10 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import {
+  Upload, ClipboardList, FileText, Files, Search,
+  Pencil, Eye, X, Check, Loader2, ArrowLeft,
+} from 'lucide-vue-next'
 import { getStoreData, initializeFromUpload, hasData, clearAllData } from '../stores/resultsStore'
 
 
@@ -513,337 +540,122 @@ const uploadFiles = () => {
 
 <style scoped>
 .upload-container {
-  max-width: 1200px;
+  max-width: var(--container-max);
   margin: 0 auto;
-  padding: 1rem 2rem 2rem 2rem;
+  padding: var(--space-8) var(--page-pad);
 }
 
-h1 {
-  text-align: center;
-  color: #2c3e50;
-  margin-bottom: 1rem;
+.page-desc {
+  margin-bottom: 28px;
 }
 
 .upload-area {
   display: grid;
-  gap: 2rem;
-  margin-bottom: 2rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .upload-area {
+    grid-template-columns: 1fr;
+  }
 }
 
 .upload-section {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  min-width: 0;
 }
 
-.upload-section h2 {
-  margin: 0;
-  color: #2c3e50;
+.section-title {
+  margin: 0 0 12px;
 }
 
-.upload-section h3 {
-  margin: 0 0 0.75rem;
-  color: #2c3e50;
-  font-size: 1rem;
+.file-list h3 {
+  margin: 0 0 8px;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  color: var(--text-1);
 }
 
 /* 答案卷兩個選項並排 */
 .master-input-area {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 1rem;
+  align-items: stretch;
+  gap: 12px;
 }
 
 .or-divider {
-  font-size: 1.1rem;
-  color: #999;
-  font-weight: bold;
+  align-self: center;
+  color: var(--text-3);
+  font-size: var(--text-sm);
   text-align: center;
 }
 
-.drop-zone {
-  border: 3px dashed #ccc;
-  border-radius: 8px;
-  padding: 3rem;
-  text-align: center;
-  background-color: #f9f9f9;
-  transition: all 0.3s ease;
-  cursor: pointer;
+.file-ic {
+  color: var(--text-2);
+  flex-shrink: 0;
 }
 
-.drop-zone.drag-over {
-  border-color: #42b883;
-  background-color: #e8f5e9;
-}
-
-.template-zone {
-  border-color: #4a90e2;
-  background-color: #f0f6ff;
-}
-
-.template-zone:hover {
-  border-color: #2c6db5;
-  background-color: #e3eeff;
-}
-
-.upload-icon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
-}
-
-.drop-zone p {
-  color: #666;
-  margin-bottom: 1rem;
-}
-
-.select-btn {
-  background-color: #42b883;
-  color: white;
-  border: none;
-  padding: 0.75rem 2rem;
-  font-size: 1rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.select-btn:hover {
-  background-color: #35945d;
-}
-
-.template-btn {
-  background-color: #4a90e2;
-}
-
-.template-btn:hover {
-  background-color: #2c6db5;
-}
-
-.small-btn {
-  padding: 0.4rem 0.9rem;
-  font-size: 0.85rem;
-}
-
-/* 模板 badge */
-.template-badge {
-  display: inline-block;
-  background-color: #e3eeff;
-  color: #2c6db5;
-  border: 1px solid #4a90e2;
-  border-radius: 4px;
-  font-size: 0.78rem;
-  padding: 0.15rem 0.5rem;
-  margin: 0.25rem 0;
+.file-ic--faint {
+  color: var(--text-3);
 }
 
 .file-list {
-  margin-top: 2rem;
-}
-
-.file-list h2 {
-  color: #2c3e50;
-  margin-bottom: 1rem;
-}
-
-.file-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.file-item {
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 1rem;
-  text-align: center;
-  background-color: white;
-}
-
-.preview-image {
-  width: 100%;
-  height: 150px;
-  object-fit: cover;
-  border-radius: 4px;
-  margin-bottom: 0.5rem;
-}
-
-.file-name {
-  font-size: 0.875rem;
-  color: #666;
-  margin: 0.5rem 0;
-  word-break: break-all;
-}
-
-.remove-btn {
-  background-color: #ff5252;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.remove-btn:hover {
-  background-color: #d32f2f;
+  margin-top: 16px;
 }
 
 .action-buttons {
   display: flex;
-  gap: 1rem;
+  gap: 12px;
   justify-content: center;
+  margin-top: 40px;
 }
 
-.clear-btn,
-.upload-btn {
-  padding: 0.75rem 2rem;
-  font-size: 1rem;
-  border-radius: 4px;
-  border: none;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.clear-btn {
-  background-color: #666;
-  color: white;
-}
-
-.clear-btn:hover {
-  background-color: #555;
-}
-
-.upload-btn {
-  background-color: #42b883;
-  color: white;
-}
-
-.upload-btn:hover:not(:disabled) {
-  background-color: #35945d;
-}
-
-.upload-btn:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
-}
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal {
-  background: white;
-  border-radius: 10px;
-  width: 680px;
-  max-width: 95vw;
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  position: relative;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1.2rem 1.5rem;
-  border-bottom: 1px solid #eee;
-  flex-shrink: 0;
-}
-
-.modal-header h3 {
-  margin: 0;
-  color: #2c3e50;
-  font-size: 1.1rem;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  cursor: pointer;
-  color: #999;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-}
-
-.modal-close:hover {
-  background: #f0f0f0;
-  color: #333;
-}
-
-/* 搜尋欄 */
+/* Modal 搜尋欄 */
 .modal-search {
-  padding: 0.75rem 1.5rem;
-  border-bottom: 1px solid #eee;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
-}
-
-.search-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.55rem 1rem;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.search-input:focus {
-  border-color: #4a90e2;
-}
-
-.modal-body {
-  overflow-y: auto;
-  padding: 1rem 1.5rem;
-  flex: 1;
 }
 
 .modal-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   text-align: center;
-  color: #999;
-  padding: 2rem 0;
+  color: var(--text-3);
+  padding: 32px 0;
 }
 
 .template-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 8px;
 }
 
 .template-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
   align-items: center;
-  gap: 1rem;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  background: #fafafa;
-  transition: background 0.2s;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  transition: border-color var(--duration-fast) var(--ease);
 }
 
 .template-item:hover {
-  background: #f0f6ff;
-  border-color: #4a90e2;
+  border-color: var(--border-strong);
 }
 
 .template-info {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  flex: 1;
   min-width: 0;
 }
 
@@ -851,13 +663,12 @@ h1 {
 .template-name-row {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 6px;
 }
 
 .template-name {
-  font-weight: 600;
-  color: #2c3e50;
-  font-size: 0.95rem;
+  font-weight: var(--weight-medium);
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -867,72 +678,36 @@ h1 {
 .template-edit-row {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 6px;
 }
 
 .template-name-input {
   flex: 1;
   min-width: 0;
-  border: 1px solid #4a90e2;
-  border-radius: 4px;
-  padding: 0.2rem 0.5rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  outline: none;
-}
-
-.icon-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0.15rem 0.35rem;
-  font-size: 0.85rem;
-  border-radius: 3px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.icon-btn:hover {
-  background: #f0f0f0;
 }
 
 .confirm-icon {
-  color: #42b883;
+  color: var(--status-correct);
 }
 
 .cancel-icon {
-  color: #ff5252;
+  color: var(--danger);
 }
 
 .template-meta {
   margin: 0;
-  font-size: 0.82rem;
-  color: #888;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+  font-family: var(--font-mono);
 }
 
 /* 三顆按鈕（橫排） */
 .template-actions {
   display: flex;
   flex-direction: row;
-  gap: 0.4rem;
+  gap: 6px;
   align-items: center;
   flex-shrink: 0;
-}
-
-/* 預覽按鈕 */
-.preview-btn {
-  background-color: #6c8ebf;
-  color: white;
-  border: none;
-  padding: 0.4rem 0.9rem;
-  font-size: 0.85rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.preview-btn:hover {
-  background-color: #4a6fa5;
 }
 
 /* Inner overlay（刪除確認 / 圖片預覽）— 蓋在 modal 上 */
@@ -940,7 +715,7 @@ h1 {
   position: absolute;
   inset: 0;
   background: rgba(255, 255, 255, 0.97);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -951,155 +726,97 @@ h1 {
 /* 刪除確認框 */
 .confirm-box {
   text-align: center;
-  padding: 2rem 2.5rem;
+  padding: 32px 40px;
 }
 
 .confirm-box p {
-  font-size: 1rem;
-  color: #2c3e50;
-  margin: 0 0 1.5rem;
+  font-size: var(--text-md);
+  color: var(--text-1);
+  margin: 0 0 24px;
 }
 
 .confirm-actions {
   display: flex;
-  gap: 1rem;
+  gap: 12px;
   justify-content: center;
-}
-
-.cancel-confirm-btn {
-  background: #e0e0e0;
-  color: #333;
-  border: none;
-  padding: 0.5rem 1.5rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  transition: background-color 0.2s;
-}
-
-.cancel-confirm-btn:hover {
-  background: #ccc;
-}
-
-.delete-confirm-btn {
-  background: #ff5252;
-  color: white;
-  border: none;
-  padding: 0.5rem 1.5rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  transition: background-color 0.2s;
-}
-
-.delete-confirm-btn:hover {
-  background: #d32f2f;
 }
 
 /* 圖片預覽 overlay */
 .modal-preview-overlay {
-  background: rgba(17, 17, 17, 0.95);
-  padding: 3rem 1.5rem 1.5rem;
+  background: var(--gray-900);
+  padding: 56px 24px 24px;
 }
 
 .preview-back-btn {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
-  background: rgba(255, 255, 255, 0.9);
-  border: none;
-  padding: 0.4rem 0.9rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: background-color 0.2s;
-}
-
-.preview-back-btn:hover {
-  background: white;
+  top: 12px;
+  left: 12px;
 }
 
 .preview-full-img {
   max-width: 100%;
-  max-height: calc(80vh - 5rem);
+  max-height: calc(85vh - 6rem);
   object-fit: contain;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 /* 答案卷預覽（已選擇後） */
 .master-preview {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #ddd;
-  border-radius: 8px;
+  padding: 0;
   overflow: hidden;
-  background: white;
-}
-
-.master-preview-image {
-  width: 100%;
-  max-height: 60vh;
-  object-fit: contain;
-  background: #f0f0f0;
-  display: block;
 }
 
 .master-preview-info {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid #eee;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-default);
 }
-
 
 .filename-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  gap: 8px;
 }
 
 .filename-row .file-name {
-  margin: 0;
   flex: 1;
-}
-
-.master-preview-info .file-name {
-  font-size: 1.2rem;
-  color: #444;
-}
-
-.master-preview-info .remove-btn {
-  font-size: 1.2rem;
-  padding: 0.5rem 1.1rem;
-}
-
-.exam-name-input {
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  padding: 0.6rem 0.9rem;
-  font-size: 1rem;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.exam-name-input:focus {
-  outline: none;
-  border-color: #42b883;
-}
-
-.template-source-hint {
+  min-width: 0;
   margin: 0;
-  font-size: 0.85rem;
-  color: #4a90e2;
+  font-weight: var(--weight-medium);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.master-preview-figure {
+  padding: 16px;
+  background: var(--surface-sunken);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.master-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 60vh;
+  margin: 0 auto;
+  object-fit: contain;
+  box-shadow: var(--shadow-sm);
+  border-radius: 2px;
+}
+
+/* 學生考卷清單 */
 .file-name-list {
   display: flex;
   flex-direction: column;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
   overflow-y: auto;
   max-height: 320px;
 }
@@ -1107,11 +824,9 @@ h1 {
 .file-name-item {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.55rem 1rem;
-  border-bottom: 1px solid #f0f0f0;
-  background: white;
-  transition: background 0.15s;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--gray-100);
 }
 
 .file-name-item:last-child {
@@ -1119,36 +834,16 @@ h1 {
 }
 
 .file-name-item:hover {
-  background: #f8f8f8;
-}
-
-.file-icon {
-  font-size: 0.95rem;
-  flex-shrink: 0;
+  background: var(--surface-hover);
 }
 
 .file-name-text {
   flex: 1;
-  font-size: 0.9rem;
-  color: #333;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.remove-text-btn {
-  background: none;
-  border: 1px solid #ffb3b3;
-  color: #e53935;
-  border-radius: 4px;
-  padding: 0.2rem 0.6rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.15s;
-}
-
-.remove-text-btn:hover {
-  background: #fff0f0;
 }
 </style>

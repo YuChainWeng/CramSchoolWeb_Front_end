@@ -1,27 +1,30 @@
 <template>
   <div class="label-container">
-    <h1>Image Labeling for YOLO</h1>
-    
-    <div v-if="!hasAnyImages" class="no-images">
-      <p>No images uploaded. Please upload images first.</p>
-      <button @click="goToUpload" class="upload-link-btn">Go to Upload</button>
+
+    <div v-if="!hasAnyImages" class="ds-card no-images">
+      <p>尚未上傳圖片，請先完成上傳。</p>
+      <button @click="goToUpload" class="ds-btn ds-btn--primary">前往上傳</button>
     </div>
 
     <div v-else class="labeling-workspace">
-      <div class="sidebar">
-        <h2>Image List</h2>
-        <div class="view-toggle">
+      <!-- 側欄：考卷列表 -->
+      <aside class="ds-card sidebar">
+        <div class="ds-segmented ds-segmented--sm view-toggle">
           <button
-            :class="{ active: viewMode === 'student' }"
+            type="button"
+            class="ds-segmented__btn"
+            :class="{ 'is-active': viewMode === 'student' }"
             @click="viewMode = 'student'"
           >
-            學生卷檢視
+            學生卷
           </button>
           <button
-            :class="{ active: viewMode === 'master' }"
+            type="button"
+            class="ds-segmented__btn"
+            :class="{ 'is-active': viewMode === 'master' }"
             @click="viewMode = 'master'"
           >
-            答案卷檢視
+            答案卷
           </button>
         </div>
         <div class="image-list">
@@ -32,178 +35,189 @@
             :class="{ active: currentImageIndex === index }"
             @click="selectImage(index)"
           >
-            <img :src="img.preview" :alt="img.name" />
-            <span>{{ img.name }}</span>
-            <span class="label-count">{{ img.labels?.length || 0 }} labels</span>
+            <img v-if="img.preview" :src="img.preview" :alt="img.name" class="thumb" />
+            <span v-else class="thumb thumb--empty"></span>
+            <span class="item-text">
+              <span class="item-name">{{ img.name }}</span>
+              <span class="item-count">{{ img.labels?.length || 0 }} 個標註</span>
+            </span>
           </div>
         </div>
-      </div>
+      </aside>
 
-      <div class="main-area">
-        <div class="workspace-main">
-          <div class="image-display">
-            <canvas
-              ref="canvas"
-              tabindex="0"
-              :style="{ 
-                cursor: getCursorStyle(),
-                outline: 'none' /* 移除聚焦時的預設黑框 */
-              }"
-              @mousedown="startDrawing"
-              @mousemove="draw"
-              @mouseup="endDrawing"
-              @mouseleave="endDrawing"
-              @wheel.prevent="handleWheel"
-            ></canvas>
-            <div class="view-controls">
-              <div class="zoom-controls">
-                <button @click="changeZoom(0.1)">＋</button>
-                <span>{{ Math.round(zoom * 100) }}%</span>
-                <button @click="changeZoom(-0.1)">－</button>
-              </div>
-              <div class="pan-controls">
-                <button @click="nudgePan('up')">↑</button>
-                <div class="pan-middle">
-                  <button @click="nudgePan('left')">←</button>
-                  <button @click="resetView">重置</button>
-                  <button @click="nudgePan('right')">→</button>
-                </div>
-                <button @click="nudgePan('down')">↓</button>
-              </div>
-            </div>
-            <div class="prediction-state" v-if="currentImage">
-              <span v-if="currentImage.isPredicting" class="state loading">偵測中...</span>
-              <span v-else-if="currentImage.predictionError" class="state error">
-                {{ currentImage.predictionError }}
-                <button @click="retryPrediction" class="retry-btn">重試</button>
-              </span>
-              <span v-else-if="currentImage.predictionsLoaded" class="state success">已套用偵測結果</span>
-              <span v-else class="state idle">等待偵測</span>
-            </div>
+      <!-- 畫布區 -->
+      <section class="ds-card canvas-card">
+        <div class="canvas-toolbar">
+          <div class="ds-segmented ds-segmented--sm">
+            <button
+              type="button"
+              class="ds-segmented__btn"
+              :class="{ 'is-active': currentMode === 'draw' }"
+              @click="currentMode = 'draw'"
+            >
+              <Crosshair :size="14" /> 標註
+            </button>
+            <button
+              type="button"
+              class="ds-segmented__btn"
+              :class="{ 'is-active': currentMode === 'pan' }"
+              @click="currentMode = 'pan'"
+            >
+              <Move :size="14" /> 拖移
+            </button>
           </div>
+          <span class="toolbar-hint">拖移可按住 Ctrl</span>
+          <span class="spacer"></span>
+          <button class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon" @click="changeZoom(-0.1)" title="縮小">
+            <ZoomOut :size="14" />
+          </button>
+          <span class="zoom-value">{{ Math.round(zoom * 100) }}%</span>
+          <button class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon" @click="changeZoom(0.1)" title="放大">
+            <ZoomIn :size="14" />
+          </button>
+          <button class="ds-btn ds-btn--ghost ds-btn--sm" @click="resetView">重置</button>
+        </div>
 
-          <div class="controls">
-            <div class="mode-selector">
-              <label>操作模式：</label>
-              <div class="mode-buttons">
-                <button 
-                  :class="{ active: currentMode === 'draw' }" 
-                  @click="currentMode = 'draw'"
-                >✏️ 標註</button>
-                <button 
-                  :class="{ active: currentMode === 'pan' }" 
-                  @click="currentMode = 'pan'"
-                >✋ 拖移（或按住Ctrl）</button>
-              </div>
-            </div>
+        <div class="canvas-area">
+          <canvas
+            ref="canvas"
+            tabindex="0"
+            :style="{
+              cursor: getCursorStyle(),
+              outline: 'none' /* 移除聚焦時的預設黑框 */
+            }"
+            @mousedown="startDrawing"
+            @mousemove="draw"
+            @mouseup="endDrawing"
+            @mouseleave="endDrawing"
+            @wheel.prevent="handleWheel"
+          ></canvas>
+        </div>
 
-            <div class="class-selector single-class">
-              <label>標註類型：</label>
-              <span class="single-class-label">{{ DEFAULT_CLASS }}</span>
-                <button
-                  @click="retryPrediction"
-                  :disabled="currentImage?.isPredicting"
-                  class="retry-btn"
-                >
-                  重新偵測
-                </button>
-              
-              <button
-                @click="applyLabelsToAll"
-                :disabled="!currentImage?.labels || currentImage.labels.length === 0"
-                class="apply-all-btn"
-              >
-                全部套用
-              </button>
-
-              <button
-                @click="autoSort"
-                :disabled="!currentImage?.labels || currentImage.labels.length === 0"
-                class="auto-sort-btn"
-              >
-                自動排序
-              </button>
-
-              <button
-                @click="detectAnswers"
-                :disabled="isProcessingOCR"
-                class="detect-answers-btn"
-              >
-                {{ isProcessingOCR ? '辨識中...' : '答案偵測' }}
-              </button>
-            </div>
-
-            <div class="label-list">
-              <h3>Labels for current image:</h3>
-              <div v-if="currentImage?.labels && currentImage.labels.length > 0" class="label-scroll">
-                <div
-                  v-for="(label, index) in currentImage.labels"
-                  :key="index"
-                  class="label-item"
-                  :class="{ 'selected': index === selectedLabelIndex }"
-                  @click="isMasterView ? focusLabelInput(index) : selectLabel(index)"
-                >
-                  <button @click.stop="removeLabel(index)" class="remove-label-btn">×</button>
-
-                  <div class="label-content-row">
-                    <span class="label-name" :class="{ 'text-red': index === selectedLabelIndex }">
-                      {{ label.class }} ({{ index + 1 }})
-                    </span>
-
-                    <div v-if="isMasterView" class="label-expected">
-                      <span class="input-prefix">正解:</span>
-                      <input
-                        type="text"
-                        v-model="label.expectedAnswer"
-                        maxlength="4"
-                        class="expected-value"
-                        :ref="(el) => { if(el) inputRefs[index] = el as HTMLInputElement }"
-                        @focus="selectLabel(index)"
-                        @keydown="handleInputKeydown(index, $event)"
-                        @click.stop
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <p v-else class="no-labels">No labels yet. Draw boxes on the image.</p>
-            </div>
-
-            <div class="navigation">
-              <button
-                @click="previousImage"
-                :disabled="currentImageIndex === 0"
-                class="nav-btn"
-              >
-                ← 上一張
-              </button>
-              <span class="image-counter">
-                {{ currentImageIndex + 1 }} / {{ displayedImages.length }}
+        <div class="canvas-footer">
+          <template v-if="currentImage">
+            <span v-if="currentImage.isPredicting" class="ds-badge ds-badge--pending">
+              <Clock :size="11" /> 偵測中…
+            </span>
+            <template v-else-if="currentImage.predictionError">
+              <span class="ds-badge ds-badge--wrong">
+                <X :size="11" /> {{ currentImage.predictionError }}
               </span>
-              <button
-                @click="nextImage"
-                :disabled="currentImageIndex === displayedImages.length - 1"
-                class="nav-btn"
-              >
-                下一張 →
-              </button>
-            </div>
+              <button @click="retryPrediction" class="ds-btn ds-btn--ghost ds-btn--sm">重試</button>
+            </template>
+            <span v-else-if="currentImage.predictionsLoaded" class="ds-badge ds-badge--correct">
+              <Check :size="11" /> 已套用偵測結果
+            </span>
+            <span v-else class="ds-badge">等待偵測</span>
+          </template>
+          <span class="spacer"></span>
+          <button
+            @click="previousImage"
+            :disabled="currentImageIndex === 0"
+            class="ds-btn ds-btn--ghost ds-btn--sm"
+          >
+            <ChevronLeft :size="14" /> 上一張
+          </button>
+          <span class="image-counter">{{ currentImageIndex + 1 }} / {{ displayedImages.length }}</span>
+          <button
+            @click="nextImage"
+            :disabled="currentImageIndex === displayedImages.length - 1"
+            class="ds-btn ds-btn--ghost ds-btn--sm"
+          >
+            下一張 <ChevronRight :size="14" />
+          </button>
+        </div>
+      </section>
 
-            <div class="auto-apply-option">
-              <label class="checkbox-label">
-                <input type="checkbox" v-model="autoApplyMasterToResults" />
-                <span>自動套用答案卷標註到所有考卷</span>
-              </label>
-            </div>
-
-            <div class="action-buttons">
-              <button @click="clearLabels" class="clear-labels-btn">清除標註</button>
-              <button @click="exportLabels" class="export-btn">匯出標註</button>
-              <button @click="goToResults" class="results-btn">查看結果</button>
-            </div>
+      <!-- 右欄：標註面板 -->
+      <aside class="side-panel">
+        <div class="ds-card panel-card">
+          <p class="ds-eyebrow panel-label">標註類型</p>
+          <div class="class-row">
+            <span class="ds-badge ds-badge--accent">{{ DEFAULT_CLASS }}</span>
+            <span class="hint-text">單一類別</span>
+          </div>
+          <div class="batch-grid">
+            <button
+              @click="retryPrediction"
+              :disabled="currentImage?.isPredicting"
+              class="ds-btn ds-btn--sm"
+            >
+              <RotateCw :size="14" /> 重新偵測
+            </button>
+            <button
+              @click="applyLabelsToAll"
+              :disabled="!currentImage?.labels || currentImage.labels.length === 0"
+              class="ds-btn ds-btn--sm"
+            >
+              <Copy :size="14" /> 全部套用
+            </button>
+            <button
+              @click="autoSort"
+              :disabled="!currentImage?.labels || currentImage.labels.length === 0"
+              class="ds-btn ds-btn--sm"
+            >
+              <ArrowUpDown :size="14" /> 自動排序
+            </button>
+            <button
+              @click="detectAnswers"
+              :disabled="isProcessingOCR"
+              class="ds-btn ds-btn--sm"
+            >
+              <ScanText :size="14" /> {{ isProcessingOCR ? '辨識中…' : '答案偵測' }}
+            </button>
           </div>
         </div>
-      </div>
+
+        <div class="ds-card panel-card">
+          <p class="ds-eyebrow panel-label">目前標註（{{ currentImage?.labels?.length || 0 }}）</p>
+          <div v-if="currentImage?.labels && currentImage.labels.length > 0" class="label-scroll">
+            <div
+              v-for="(label, index) in currentImage.labels"
+              :key="index"
+              class="label-item"
+              :class="{ 'selected': index === selectedLabelIndex }"
+              @click="isMasterView ? focusLabelInput(index) : selectLabel(index)"
+            >
+              <span class="label-index">#{{ index + 1 }}</span>
+              <span class="label-name">{{ label.class }}</span>
+
+              <span v-if="isMasterView" class="label-expected">
+                <span class="input-prefix">正解</span>
+                <input
+                  type="text"
+                  v-model="label.expectedAnswer"
+                  maxlength="4"
+                  class="ds-input ds-input--sm ds-input--mono expected-value"
+                  :ref="(el) => { if(el) inputRefs[index] = el as HTMLInputElement }"
+                  @focus="selectLabel(index)"
+                  @keydown="handleInputKeydown(index, $event)"
+                  @click.stop
+                />
+              </span>
+
+              <button @click.stop="removeLabel(index)" class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon" title="刪除標註">
+                <X :size="14" />
+              </button>
+            </div>
+          </div>
+          <p v-else class="no-labels">尚無標註，請在圖上拖曳畫框。</p>
+        </div>
+
+        <div class="ds-card ds-card--sunken panel-card">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="autoApplyMasterToResults" />
+            <span>自動套用答案卷標註到所有考卷</span>
+          </label>
+          <div class="panel-actions">
+            <button @click="clearLabels" class="ds-btn ds-btn--danger ds-btn--sm">清除標註</button>
+            <button @click="exportLabels" class="ds-btn ds-btn--sm"><Download :size="14" /> 匯出標註</button>
+          </div>
+          <button @click="goToResults" class="ds-btn ds-btn--primary results-btn">
+            <LayoutGrid :size="16" /> 查看結果
+          </button>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
@@ -211,6 +225,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onBeforeUpdate, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import {
+  Crosshair, Move, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
+  RotateCw, Copy, ArrowUpDown, ScanText, X, Check, Clock,
+  Download, LayoutGrid,
+} from 'lucide-vue-next'
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants'
 import { setResultsData, getStoreData, hasData, updateStudentImages, updateMasterImage } from '../stores/resultsStore'
 
@@ -571,8 +590,8 @@ const runOCRForImage = async (img: ImageData, target: 'student' | 'master') => {
 };
 
 const handleImageChange = () => {
-  selectedLabelIndex.value = -1 
-  inputRefs.value = [] 
+  selectedLabelIndex.value = -1
+  inputRefs.value = []
   panX.value = 0
   panY.value = 0
   zoom.value = 1
@@ -592,7 +611,7 @@ const handleGlobalKeydown = (event: KeyboardEvent) => {
 
   if (event.key === 'Backspace' || event.key === 'Delete') {
     const activeEl = document.activeElement as HTMLElement
-    
+
     // 如果焦點正在輸入框內，不執行這裡的邏輯 (交給 handleInputKeydown)
     if (activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement || activeEl?.isContentEditable) {
       return
@@ -617,7 +636,7 @@ const updateRecognizedAnswer = (label: Label) => {
   if (!label.ocrCandidates) return
 
   const input = label.answer ? label.answer.trim() : ''
-  
+
   // 判斷邏輯：如果是純數字 (RegExp: ^\d+$)，就選 digit，否則選 chinese
   // 你也可以改用 /[0-9]/.test(input) 只要包含數字就切換，視你的需求而定
   const isDigit = /^\d+$/.test(input)
@@ -659,7 +678,7 @@ const loadImage = () => {
     drawLabels(ctx)
     ctx.restore()
   }
-  
+
   if (currentImage.value.preview) {
     img.src = currentImage.value.preview
   } else {
@@ -677,8 +696,8 @@ const drawLabels = (ctx: CanvasRenderingContext2D) => {
 
   currentImage.value.labels.forEach((label, index) => {
     const isSelected = index === selectedLabelIndex.value
-    ctx.strokeStyle = isSelected ? '#ff5252' : '#42b883'
-    ctx.lineWidth = isSelected ? 3 : 2 
+    ctx.strokeStyle = isSelected ? '#C2382F' : '#3B66C4'
+    ctx.lineWidth = isSelected ? 3 : 2
     ctx.strokeRect(label.x, label.y, label.width, label.height)
   })
 }
@@ -837,7 +856,7 @@ const draw = (event: MouseEvent) => {
 
   ctx.save()
   ctx.setTransform(zoom.value, 0, 0, zoom.value, panX.value, panY.value)
-  ctx.strokeStyle = '#ff5252'
+  ctx.strokeStyle = '#C2382F'
   ctx.lineWidth = 2
   ctx.strokeRect(
     startX.value,
@@ -1003,9 +1022,12 @@ const getCanvasCoords = (event: MouseEvent) => {
   if (!canvas.value) return { x: 0, y: 0 }
 
   const rect = canvas.value.getBoundingClientRect()
+  // 畫布以 CSS 縮放顯示（設計版面為響應式），需換算回內部座標
+  const scaleX = rect.width > 0 ? canvas.value.width / rect.width : 1
+  const scaleY = rect.height > 0 ? canvas.value.height / rect.height : 1
   return {
-    x: (event.clientX - rect.left - panX.value) / zoom.value,
-    y: (event.clientY - rect.top - panY.value) / zoom.value
+    x: ((event.clientX - rect.left) * scaleX - panX.value) / zoom.value,
+    y: ((event.clientY - rect.top) * scaleY - panY.value) / zoom.value
   }
 }
 
@@ -1040,15 +1062,6 @@ const handleWheel = (event: WheelEvent) => {
 
 const changeZoom = (delta: number) => {
   zoom.value = Math.min(3, Math.max(0.2, zoom.value + delta))
-  loadImage()
-}
-
-const nudgePan = (direction: 'up' | 'down' | 'left' | 'right') => {
-  const step = 20
-  if (direction === 'up') panY.value += step
-  if (direction === 'down') panY.value -= step
-  if (direction === 'left') panX.value += step
-  if (direction === 'right') panX.value -= step
   loadImage()
 }
 
@@ -1216,7 +1229,7 @@ const exportLabels = () => {
       }))
     }
   })
-  
+
   const blob = new Blob([JSON.stringify(yoloData, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -1302,656 +1315,308 @@ const goToResults = () => {
 
 <style scoped>
 .label-container {
-  padding: 1rem 2rem 2rem 2rem;
-  height: calc(100vh - 4rem);
-  overflow: hidden;
-}
-
-h1 {
-  text-align: center;
-  color: #2c3e50;
-  margin-bottom: 1rem;
+  max-width: 1376px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--page-pad);
 }
 
 .no-images {
+  max-width: 480px;
+  margin: 48px auto;
   text-align: center;
-  padding: 4rem;
+  padding: 48px 32px;
 }
 
 .no-images p {
-  font-size: 1.2rem;
-  color: #666;
-  margin-bottom: 1rem;
-}
-
-.upload-link-btn {
-  background-color: #42b883;
-  color: white;
-  border: none;
-  padding: 0.75rem 2rem;
-  font-size: 1rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.upload-link-btn:hover {
-  background-color: #35945d;
+  font-size: var(--text-md);
+  color: var(--text-2);
+  margin: 0 0 20px;
 }
 
 .labeling-workspace {
-  display: flex;
-  gap: 1rem;
-  height: calc(100% - 80px);
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
 }
 
+@media (max-width: 1100px) {
+  .labeling-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 側欄 ── */
 .sidebar {
-  width: 250px;
-  background-color: #f5f5f5;
-  border-radius: 8px;
-  padding: 1rem;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 110px);
   overflow-y: auto;
 }
 
-.sidebar h2 {
-  font-size: 1.2rem;
-  margin-bottom: 1rem;
-  color: #2c3e50;
-}
-
 .view-toggle {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.view-toggle button {
-  flex: 1;
-  padding: 0.5rem;
-  border: 2px solid #ddd;
-  border-radius: 6px;
-  background: white;
-  cursor: pointer;
-  font-weight: bold;
-  color: #2c3e50;
-  transition: all 0.2s;
-}
-
-.view-toggle button.active {
-  border-color: #42b883;
-  background-color: #e8f5e9;
-  color: #42b883;
-}
-
-.view-toggle button:hover:not(.active) {
-  background-color: #f9f9f9;
+  width: 100%;
 }
 
 .image-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 4px;
 }
 
 .image-list-item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem;
-  border-radius: 4px;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  background-color: #f0f0f0;
-  border: 2px solid transparent;
-  transition: all 0.3s;
-  color: #666;
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background var(--duration-fast) var(--ease);
 }
 
 .image-list-item:hover {
-  background-color: #e8f5e9;
+  background: var(--surface-hover);
 }
 
 .image-list-item.active {
-  border-color: #42b883;
-  background-color: #e8f5e9;
-  color: #2d8a5f;
+  background: var(--accent-subtle);
+  border-color: var(--accent-border);
 }
 
-.image-list-item img {
-  width: 50px;
-  height: 50px;
+.thumb {
+  width: 32px;
+  height: 40px;
   object-fit: cover;
-  border-radius: 4px;
+  background: #fff;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 
-.image-list-item span {
-  font-size: 0.875rem;
+.thumb--empty {
+  display: inline-block;
+  background: var(--surface-sunken);
+}
+
+.item-text {
   flex: 1;
+  min-width: 0;
+}
+
+.item-name {
+  display: block;
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.label-count {
-  color: #42b883;
-  font-weight: bold;
+.image-list-item.active .item-name {
+  color: var(--accent-active);
 }
 
-.main-area {
+.item-count {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+/* ── 畫布卡片 ── */
+.canvas-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.canvas-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-default);
+  flex-wrap: wrap;
+}
+
+.toolbar-hint {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.spacer {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
 }
 
-.workspace-main {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-start;
-  height: 100%;
+.zoom-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  width: 44px;
+  text-align: center;
 }
 
-.image-display {
-  background-color: #f5f5f5;
-  border-radius: 8px;
+.canvas-area {
+  background: var(--surface-sunken);
+  padding: 24px;
   display: flex;
   justify-content: center;
-  align-items: center;
   overflow: hidden;
-  flex-direction: column;
-  flex: 1;
-  padding: 1rem;
-  position: relative;
-  min-height: 680px;
 }
 
 canvas {
-  border: 2px solid #ddd;
-  border-radius: 4px;
+  max-width: 100%;
+  height: auto;
   background-color: white;
+  box-shadow: var(--shadow-md);
+  border-radius: 4px;
   transition: cursor 0.1s;
 }
 
-.view-controls {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  margin-top: 0.5rem;
-}
-
-.zoom-controls,
-.pan-controls {
+.canvas-footer {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-}
-
-.pan-controls {
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.pan-middle {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.view-controls button {
-  background-color: #42b883;
-  color: white;
-  border: none;
-  padding: 0.3rem 0.6rem;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.view-controls button:hover {
-  background-color: #35945d;
-}
-
-.view-controls .hint {
-  margin: 0;
-  color: #666;
-  font-size: 0.875rem;
-}
-
-.prediction-state {
-  margin-top: 0.75rem;
-  width: 100%;
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  justify-content: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-default);
   flex-wrap: wrap;
-  color: #2c3e50;
-}
-
-.state {
-  font-size: 0.9rem;
-}
-
-.state.loading {
-  color: #ff9800;
-}
-
-.state.error {
-  color: #d32f2f;
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.state.success {
-  color: #42b883;
-}
-
-.state.idle {
-  color: #666;
-}
-
-.apply-all-btn {
-  background-color: #673ab7; /* 紫色，代表批次處理 */
-  color: #fff;
-  border: none;
-  padding: 0.4rem 0.8rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  margin-left: 10px; /* 與左邊按鈕拉開距離 */
-  transition: background-color 0.2s;
-}
-
-.apply-all-btn:hover {
-  background-color: #5e35b1;
-}
-
-.apply-all-btn:disabled {
-  background-color: #b39ddb;
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.auto-sort-btn {
-  background-color: #009688;
-  color: #fff;
-  border: none;
-  padding: 0.4rem 0.8rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  margin-left: 10px;
-  transition: background-color 0.2s;
-}
-
-.auto-sort-btn:hover {
-  background-color: #00796b;
-}
-
-.auto-sort-btn:disabled {
-  background-color: #80cbc4;
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.detect-answers-btn {
-  background-color: #ff9800; /* 橙色，代表辨識功能 */
-  color: #fff;
-  border: none;
-  padding: 0.4rem 0.8rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  margin-left: 10px;
-  transition: background-color 0.2s;
-}
-
-.detect-answers-btn:hover {
-  background-color: #f57c00;
-}
-
-.detect-answers-btn:disabled {
-  background-color: #ffcc80;
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-
-.retry-btn {
-  background-color: #2196f3;
-  color: #fff;
-  border: none;
-  padding: 0.3rem 0.6rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.retry-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.controls {
-  background-color: #f5f5f5;
-  border-radius: 8px;
-  padding: 1rem;
-  width: 360px;
-  max-width: 380px;
-  height: 100%;
-  overflow-y: auto;
-}
-
-/* 模式切換器專用樣式 */
-.mode-selector {
-  margin-bottom: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.mode-selector label {
-  font-weight: bold;
-  color: #2c3e50;
-}
-
-.mode-buttons {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.mode-buttons button {
-  flex: 1;
-  padding: 0.6rem;
-  border: 2px solid #ddd;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: bold;
-  transition: all 0.2s;
-}
-
-.mode-buttons button.active {
-  border-color: #42b883;
-  background-color: #e8f5e9;
-  color: #42b883;
-}
-
-.mode-buttons button:hover:not(.active) {
-  background-color: #f9f9f9;
-  border-color: #ccc;
-}
-
-.class-selector {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
-}
-
-.class-selector label {
-  font-weight: bold;
-  color: #2c3e50;
-}
-
-.single-class-label {
-  background: #e8f5e9;
-  color: #2c3e50;
-  padding: 0.4rem 0.75rem;
-  border-radius: 4px;
-  font-weight: bold;
-}
-
-.label-list {
-  margin-bottom: 1rem;
-}
-
-.label-list h3 {
-  font-size: 1rem;
-  color: #2c3e50;
-  margin-bottom: 0.5rem;
-}
-
-.label-scroll {
-  max-height: 360px;
-  overflow-y: auto;
-  padding-right: 0.25rem;
-}
-
-/* ----- Label Item 樣式 (單行整合版) ----- */
-
-.label-item {
-  position: relative; /* 為了讓絕對定位的叉叉按鈕參考 */
-  display: block; /* 改為 block 方便內部 flex 排版 */
-  /* [修改] 加大上下 padding，讓點擊區域更舒適 */
-  padding: 1rem 0.75rem; 
-  background-color: white;
-  border-radius: 6px;
-  margin-bottom: 0.75rem; /* [修改] 增加間距 */
-  border: 2px solid transparent; /* 預留邊框位置 */
-  cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.08); /* 稍微加深陰影 */
-}
-
-/* 選取時的樣式 */
-.label-item.selected {
-  border-color: #ff5252;
-  background-color: #fff5f5; /* 淡淡的紅色背景 */
-}
-
-/* [新增] 單行排版容器：名稱在左，輸入框在右 */
-.label-content-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between; /* 左右撐開 */
-  margin-right: 32px; /* [修改] 右側預留空間給垂直置中的刪除按鈕 */
-}
-
-/* [修改] 標籤名稱：字體放大 */
-.label-name {
-  font-weight: bold;
-  font-size: 1.2rem; /* [修改] 字體放大 */
-  color: #42b883;
-}
-
-/* 選取時文字變紅 */
-.label-name.text-red {
-  color: #d32f2f;
-}
-
-/* [新增] 輸入框群組 (包含 "答:" 字樣) */
-.label-input-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.label-expected {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: bold;
-  color: #2c3e50;
-}
-
-.expected-value {
-  width: 70px;
-  padding: 4px 8px;
-  border: 2px solid #ddd;
-  border-radius: 6px;
-  background-color: #fff7e6;
-  color: #8a5a00;
-  text-align: center;
-  font-size: 1.2rem;
-  font-weight: bold;
-}
-
-.input-prefix {
-  font-size: 1rem;
-  font-weight: bold;
-  color: #2c3e50;
-}
-
-/* [修改] 輸入框樣式：字體放大、框加大 */
-.label-input-group input {
-  width: 70px; /* 寬度加寬 */
-  padding: 4px 8px;
-  border: 2px solid #ddd;
-  border-radius: 6px;
-  outline: none;
-  font-size: 1.2rem; /* [修改] 輸入字體放大 */
-  text-align: center;
-  color: #2c3e50; 
-  font-weight: bold;
-  background-color: #f9f9f9;
-}
-
-.label-input-group input:focus {
-  border-color: #42b883;
-  background-color: #fff;
-  box-shadow: 0 0 0 3px rgba(66, 184, 131, 0.15);
-}
-
-/* [修改] 刪除按鈕：垂直置中 */
-.remove-label-btn {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%); /* 垂直置中修正 */
-  right: 8px;
-  
-  background-color: transparent;
-  color: #bbb;
-  border: none;
-  width: 32px; /* 按鈕範圍加大 */
-  height: 32px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 1.5rem; /* 叉叉符號放大 */
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-
-.remove-label-btn:hover {
-  background-color: #ff5252;
-  color: white;
-}
-
-/* 舊的樣式若不再使用可忽略，為避免衝突或遺漏仍保留基礎設定 */
-.no-labels {
-  color: #999;
-  font-style: italic;
-}
-
-.navigation {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
-}
-
-.nav-btn {
-  background-color: #42b883;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background-color 0.3s;
-}
-
-.nav-btn:hover:not(:disabled) {
-  background-color: #35945d;
-}
-
-.nav-btn:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
 }
 
 .image-counter {
-  font-weight: bold;
-  color: #2c3e50;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
 }
 
-.auto-apply-option {
+/* ── 右欄面板 ── */
+.side-panel {
   display: flex;
-  justify-content: center;
-  margin-bottom: 1rem;
-  padding: 0.75rem;
-  background-color: #f9f9f9;
-  border-radius: 6px;
-  border: 1px solid #e0e0e0;
+  flex-direction: column;
+  gap: 16px;
 }
 
+.panel-card {
+  padding: 16px;
+}
+
+.panel-label {
+  margin: 0 0 8px;
+}
+
+.class-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.hint-text {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.batch-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* ── 標註清單 ── */
+.label-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.label-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  transition: border-color var(--duration-fast) var(--ease);
+}
+
+.label-item.selected {
+  border-color: var(--border-focus);
+  background: var(--accent-subtle);
+}
+
+.label-index {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.label-name {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--text-1);
+}
+
+.label-expected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-prefix {
+  font-size: var(--text-xs);
+  color: var(--text-3);
+}
+
+.expected-value {
+  width: 64px;
+  text-align: center;
+}
+
+.no-labels {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--text-sm);
+}
+
+/* ── 底部操作卡 ── */
 .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
   cursor: pointer;
   user-select: none;
-  color: #2c3e50;
-  font-weight: 500;
+  color: var(--text-1);
+  font-size: var(--text-sm);
+  margin-bottom: 14px;
 }
 
 .checkbox-label input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   cursor: pointer;
-  accent-color: #42b883;
+  accent-color: var(--accent);
+  flex-shrink: 0;
 }
 
-.checkbox-label span {
-  font-size: 0.95rem;
-}
-
-.checkbox-label:hover {
-  color: #42b883;
-}
-
-.action-buttons {
+.panel-actions {
   display: flex;
-  gap: 1rem;
-  justify-content: center;
+  gap: 8px;
 }
 
-.clear-labels-btn,
-.export-btn,
-.results-btn {
-  padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: background-color 0.3s;
-}
-
-.clear-labels-btn {
-  background-color: #ff5252;
-  color: white;
-}
-
-.clear-labels-btn:hover {
-  background-color: #d32f2f;
-}
-
-.export-btn {
-  background-color: #2196f3;
-  color: white;
-}
-
-.export-btn:hover {
-  background-color: #1976d2;
+.panel-actions .ds-btn {
+  flex: 1;
 }
 
 .results-btn {
-  background-color: #42b883;
-  color: white;
-}
-
-.results-btn:hover {
-  background-color: #35945d;
+  width: 100%;
+  margin-top: 8px;
 }
 </style>
