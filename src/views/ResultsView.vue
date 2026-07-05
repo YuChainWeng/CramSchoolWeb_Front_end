@@ -3,136 +3,128 @@
     <div class="page-header">
       <div>
         <p class="eyebrow">Result</p>
-        <h1>每張的對比情形</h1>
-        <p class="subtext">顯示 YOLO 標籤配對正確答案的數量，並快速回顧 OCR 辨識結果。</p>
+        <h1 class="ds-page-title page-title">每張的對比情形</h1>
+        <p class="ds-page-desc">顯示 YOLO 標籤配對正確答案的數量，並快速回顧 OCR 辨識結果。</p>
       </div>
       <div class="header-actions">
-        <button class="ghost-btn" @click="goToUpload">重新上傳</button>
-        <button class="primary-btn" @click="goToLabel">返回標記</button>
+        <button class="ds-btn" @click="goToUpload">重新上傳</button>
+        <button class="ds-btn ds-btn--primary" @click="goToLabel">返回標記</button>
       </div>
     </div>
 
     <!-- OCR 處理中的 loading 狀態 -->
-    <div v-if="isProcessingOCR" class="loading-state">
-      <div class="loading-spinner"></div>
-      <p>正在辨識學生答案...</p>
+    <div v-if="isProcessingOCR" class="ds-card loading-state">
+      <span class="ds-spinner spinner-lg"></span>
+      <p>正在辨識學生答案…</p>
       <p class="loading-progress">{{ ocrProgress.current }} / {{ ocrProgress.total }}</p>
     </div>
 
     <div v-else-if="scoredImages.length === 0" class="empty-state">
       <p>目前沒有批改結果，請先完成標記與批改。</p>
       <div class="empty-actions">
-        <button class="primary-btn" @click="goToUpload">上傳照片</button>
-        <button class="ghost-btn" @click="goToLabel">回到標記頁</button>
+        <button class="ds-btn ds-btn--primary" @click="goToUpload">上傳照片</button>
+        <button class="ds-btn" @click="goToLabel">回到標記頁</button>
       </div>
     </div>
 
     <div v-else class="results-body">
-      <div v-if="showMasterWarning" class="warning-banner">
-        <strong>提醒：</strong>
-        尚未取得標準答案卷的 OCR 結果，請回到標記頁同步標準卷的框位與 OCR，再重新查看結果。
+      <div v-if="showMasterWarning" class="ds-banner ds-banner--warning">
+        <AlertTriangle :size="16" />
+        <div class="ds-banner__body">
+          <strong>提醒：</strong>尚未取得標準答案卷的 OCR 結果，請回到標記頁同步標準卷的框位與 OCR，再重新查看結果。
+        </div>
       </div>
-      <section class="image-section">
-        <div class="section-header">
-          <div>
-            <h2>Preview</h2>
-            <p class="subtext">「正確標籤數 / 標籤總數」。</p>
-          </div>
-        </div>
 
-        <div class="image-grid">
-          <article
-            v-for="(img, idx) in scoredImages"
-            :key="img.name"
-            class="image-card"
-            role="button"
-            tabindex="0"
-            @click="openModal(idx)"
-          >
-            <div class="thumb">
-              <img :src="img.preview || placeholderImage" :alt="img.name" />
-              <div class="overlay">
-                <span class="fraction">{{ img.correctCount }}/{{ img.totalLabels }}</span>
-                <span class="badge" :class="img.graded ? 'badge-graded' : 'badge-pending'">
-                  {{ img.graded ? '已批改' : '待批改' }}
-                </span>
-              </div>
-              <div class="box-layer" v-if="img.labels.length">
-                <div
-                  v-for="(label, idx) in img.labels"
-                  :key="idx"
-                  class="bbox"
-                  :class="label.isCorrect === true ? 'bbox-correct' : label.isCorrect === false ? 'bbox-wrong' : 'bbox-pending'"
-                  :style="boxStyle(label)"
-                ></div>
-              </div>
+      <div class="image-grid">
+        <article
+          v-for="(img, idx) in scoredImages"
+          :key="img.name"
+          class="ds-card ds-card--hoverable image-card"
+          role="button"
+          tabindex="0"
+          @click="openModal(idx)"
+        >
+          <div class="thumb">
+            <img :src="img.preview || placeholderImage" :alt="img.name" />
+            <div class="box-layer" v-if="img.labels.length">
+              <div
+                v-for="(label, bIdx) in img.labels"
+                :key="bIdx"
+                class="bbox"
+                :class="label.isCorrect === true ? 'bbox--correct' : label.isCorrect === false ? 'bbox--wrong' : 'bbox--pending'"
+                :style="boxStyle(label)"
+              ></div>
             </div>
-            <div class="card-body">
-              <div class="card-title">
-                <h3>{{ img.name }}</h3>
-                <div class="title-metrics">
-                  <span class="fraction inline">{{ img.correctCount }}/{{ img.totalLabels }}</span>
-                  <span class="accuracy">{{ img.graded ? img.accuracy + '%' : '尚未批改' }}</span>
-                </div>
-              </div>
-              <div v-if="img.labels.length" class="answers">
-                <div
-                  v-for="(label, idx) in img.labels"
-                  :key="idx"
-                  class="answer-row"
-                >
-                  <span class="answer-index">#{{ idx + 1 }}</span>
-                  <span class="answer-text">OCR：{{ label.recognizedAnswer || '—' }}</span>
-                  <span class="answer-text">正解：{{ label.expectedAnswer || label.answer || '—' }}</span>
-                  <span class="answer-chip" :class="label.isCorrect ? 'chip-correct' : label.isCorrect === false ? 'chip-wrong' : 'chip-pending'">
-                    {{ label.isCorrect === undefined ? '未判定' : label.isCorrect ? '正確' : '錯誤' }}
-                  </span>
-                </div>
-              </div>
-              <div class="card-meta">
-                
-                <span>正確 <strong>{{ img.correctCount }}</strong></span>
-                <span>錯誤 <strong>{{ img.incorrectCount }}</strong></span>
-                <span>標籤總數 <strong>{{ img.totalLabels }}</strong></span>
-              </div>
+            <span class="score-chip">{{ img.correctCount }}/{{ img.totalLabels }}</span>
+            <span class="status-badge ds-badge" :class="img.graded ? 'ds-badge--correct' : 'ds-badge--pending'">
+              {{ img.graded ? '已批改' : '待批改' }}
+            </span>
+          </div>
+          <div class="card-body">
+            <div class="card-title">
+              <h3>{{ img.name }}</h3>
+              <span class="accuracy" :class="{ 'accuracy--pending': !img.graded }">
+                {{ img.graded ? img.accuracy + '%' : '尚未批改' }}
+              </span>
             </div>
-          </article>
-        </div>
-      </section>
+            <div class="card-meta">
+              <span>正確 <strong class="meta-correct">{{ img.correctCount }}</strong></span>
+              <span>錯誤 <strong class="meta-wrong">{{ img.incorrectCount }}</strong></span>
+              <span>標籤總數 <strong class="meta-total">{{ img.totalLabels }}</strong></span>
+            </div>
+          </div>
+        </article>
+      </div>
     </div>
   </div>
 
-  <div v-if="selectedImage" class="modal" @click="closeModal">
-    <div class="modal-content" @click.stop>
-      <button class="modal-close" @click="closeModal">×</button>
-      <h3>{{ selectedImage.name }}</h3>
-      <div class="modal-image-wrap">
-        <img :src="selectedImage.preview || placeholderImage" :alt="selectedImage.name" />
-        <div class="box-layer" v-if="selectedImage.labels.length">
-          <div
-            v-for="(label, idx) in selectedImage.labels"
-            :key="idx"
-            class="bbox"
-            :class="label.isCorrect === true ? 'bbox-correct' : label.isCorrect === false ? 'bbox-wrong' : 'bbox-pending'"
-            :style="boxStyle(label)"
-          >
-            <span class="bbox-tag">#{{ idx + 1 }} {{ label.recognizedAnswer || '—' }}</span>
-          </div>
-        </div>
+  <div v-if="selectedImage" class="ds-modal-overlay" @click="closeModal">
+    <div class="ds-modal detail-modal" @click.stop>
+      <div class="ds-modal__header">
+        <h3>{{ selectedImage.name }}</h3>
+        <button class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon" @click="closeModal" title="關閉">
+          <X :size="14" />
+        </button>
       </div>
+      <div class="ds-modal__body">
+        <div class="detail-grid">
+          <div class="modal-image-wrap">
+            <div class="modal-image-inner">
+              <img :src="selectedImage.preview || placeholderImage" :alt="selectedImage.name" />
+              <div class="box-layer" v-if="selectedImage.labels.length">
+                <div
+                  v-for="(label, idx) in selectedImage.labels"
+                  :key="idx"
+                  class="bbox"
+                  :class="label.isCorrect === true ? 'bbox--correct' : label.isCorrect === false ? 'bbox--wrong' : 'bbox--pending'"
+                  :style="boxStyle(label)"
+                >
+                  <span class="bbox-tag">#{{ idx + 1 }} {{ label.recognizedAnswer || '—' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
 
-      <div v-if="selectedImage.labels.length" class="answers modal-answers">
-        <div
-          v-for="(label, idx) in selectedImage.labels"
-          :key="idx"
-          class="answer-row"
-        >
-          <span class="answer-index">#{{ idx + 1 }}</span>
-          <span class="answer-text">OCR：{{ label.recognizedAnswer || '—' }}</span>
-          <span class="answer-text">正解：{{ label.expectedAnswer || label.answer || '—' }}</span>
-          <span class="answer-chip" :class="label.isCorrect ? 'chip-correct' : label.isCorrect === false ? 'chip-wrong' : 'chip-pending'">
-            {{ label.isCorrect === undefined ? '未判定' : label.isCorrect ? '正確' : '錯誤' }}
-          </span>
+          <div v-if="selectedImage.labels.length" class="answer-rows">
+            <div
+              v-for="(label, idx) in selectedImage.labels"
+              :key="idx"
+              class="answer-row"
+            >
+              <span class="answer-index">#{{ idx + 1 }}</span>
+              <span class="answer-text">OCR <strong>{{ label.recognizedAnswer || '—' }}</strong></span>
+              <span class="answer-text">正解 <strong>{{ label.expectedAnswer || label.answer || '—' }}</strong></span>
+              <span
+                class="ds-badge answer-chip"
+                :class="label.isCorrect === true ? 'ds-badge--correct' : label.isCorrect === false ? 'ds-badge--wrong' : 'ds-badge--pending'"
+              >
+                <Check v-if="label.isCorrect === true" :size="11" />
+                <X v-else-if="label.isCorrect === false" :size="11" />
+                <Clock v-else :size="11" />
+                {{ label.isCorrect === undefined ? '未判定' : label.isCorrect ? '正確' : '錯誤' }}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -142,6 +134,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { AlertTriangle, X, Check, Clock } from 'lucide-vue-next'
 import { getResultsData, updateStudentImages, updateMasterImage } from '../stores/resultsStore'
 
 // OCR 處理狀態
@@ -191,7 +184,7 @@ const scoredImages = ref<NormalizedImage[]>([])
 const masterKeyImage = ref<IncomingImage | null>(null)
 const selectedIndex = ref<number | null>(null)
 const placeholderImage =
-  'data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"200\" viewBox=\"0 0 320 200\" fill=\"none\"><rect width=\"320\" height=\"200\" rx=\"12\" fill=\"%23e8f5e9\"/><text x=\"50%\" y=\"50%\" dominant-baseline=\"middle\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"16\" fill=\"%23666\">預覽圖片</text></svg>'
+  'data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"200\" viewBox=\"0 0 320 200\" fill=\"none\"><rect width=\"320\" height=\"200\" rx=\"12\" fill=\"%23F0F4FD\"/><text x=\"50%\" y=\"50%\" dominant-baseline=\"middle\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"16\" fill=\"%236E7683\">預覽圖片</text></svg>'
 const BASE_CANVAS_WIDTH = 800
 const BASE_CANVAS_HEIGHT = 600
 
@@ -659,173 +652,119 @@ const showMasterWarning = computed(() => {
 
 <style scoped>
 .results-page {
-  max-width: 1280px;
+  max-width: var(--container-max);
   margin: 0 auto;
-  padding: 2rem;
+  padding: var(--space-8) var(--page-pad);
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
 .eyebrow {
   margin: 0;
-  color: #42b883;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-wide);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
 }
 
-h1 {
-  margin: 0.25rem 0;
-  color: #1f2d3d;
-  font-size: 1.75rem;
-}
-
-.subtext {
-  margin: 0;
-  color: #5f6b7a;
+.page-title {
+  margin: 4px 0;
 }
 
 .header-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.primary-btn,
-.ghost-btn {
-  border-radius: 8px;
-  padding: 0.65rem 1.25rem;
-  font-size: 0.95rem;
-  cursor: pointer;
-  border: 1px solid transparent;
-  transition: all 0.2s ease;
-}
-
-.primary-btn {
-  background: linear-gradient(135deg, #42b883, #2f9b6f);
-  color: white;
-  border-color: #2f9b6f;
-}
-
-.primary-btn:hover {
-  filter: brightness(0.95);
-}
-
-.ghost-btn {
-  background: white;
-  color: #1f2d3d;
-  border-color: #d7dee5;
-}
-
-.ghost-btn:hover {
-  background: #eef4f8;
-}
-
+/* Loading 狀態 */
 .loading-state {
-  background: white;
-  border: 1px solid #d7dee5;
-  border-radius: 12px;
-  padding: 3rem 2rem;
+  padding: 48px 32px;
   text-align: center;
-  color: #5f6b7a;
+  color: var(--text-2);
 }
 
-.loading-spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid #e8f5e9;
-  border-top-color: #42b883;
-  border-radius: 50%;
-  margin: 0 auto 1rem;
-  animation: spin 1s linear infinite;
+.loading-state .spinner-lg {
+  width: 40px;
+  height: 40px;
+  border-width: 4px;
+  margin-bottom: 12px;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.loading-state p {
+  margin: 0 0 4px;
 }
 
 .loading-progress {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #42b883;
-  margin-top: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-1);
 }
 
+/* 空狀態 */
 .empty-state {
-  background: white;
-  border: 1px dashed #d7dee5;
-  border-radius: 12px;
-  padding: 2rem;
+  background: var(--surface-card);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  padding: 48px 32px;
   text-align: center;
-  color: #5f6b7a;
+  color: var(--text-2);
+}
+
+.empty-state p {
+  margin: 0;
 }
 
 .empty-actions {
-  margin-top: 1rem;
+  margin-top: 16px;
   display: flex;
-  gap: 0.75rem;
+  gap: 8px;
   justify-content: center;
 }
 
 .results-body {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 20px;
 }
 
-.warning-banner {
-  border: 1px solid #ffcc80;
-  background: #fff7e6;
-  color: #8a5a00;
-  padding: 0.75rem 1rem;
-  border-radius: 8px;
-  font-size: 0.95rem;
-}
-
-.image-section {
-  background: white;
-  border: 1px solid #e4e9ed;
-  border-radius: 12px;
-  padding: 1.25rem;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.04);
-}
-
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1rem;
-}
-
-.section-header h2 {
-  margin: 0;
-  color: #1f2d3d;
-}
-
+/* 卡片網格 */
 .image-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1100px) {
+  .image-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .image-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .image-card {
-  border: 1px solid #e4e9ed;
-  border-radius: 12px;
+  padding: 0;
   overflow: hidden;
-  background: #fdfefe;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
   display: flex;
   flex-direction: column;
 }
 
 .thumb {
   position: relative;
-  background: #eef4f8;
+  background: var(--surface-sunken);
   aspect-ratio: 4 / 3;
   overflow: hidden;
 }
@@ -837,17 +776,6 @@ h1 {
   object-fit: contain;
 }
 
-.overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: space-between;
-  padding: 12px;
-  pointer-events: none;
-}
-
 .box-layer {
   position: absolute;
   inset: 0;
@@ -856,198 +784,114 @@ h1 {
 
 .bbox {
   position: absolute;
-  border: 2px solid rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--accent);
+  border-radius: 2px;
   box-sizing: border-box;
 }
 
-.bbox-correct {
-  border-color: #2f9b6f;
+.bbox--correct { border-color: var(--status-correct); }
+.bbox--wrong   { border-color: var(--status-wrong); }
+.bbox--pending { border-color: var(--status-pending); }
+
+.score-chip {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  background: var(--gray-900);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  pointer-events: none;
 }
 
-.bbox-wrong {
-  border-color: #d93025;
-}
-
-.bbox-pending {
-  border-color: #ff9800;
-}
-
-.fraction {
-  background: rgba(31, 45, 61, 0.8);
-  color: white;
-  padding: 0.3rem 0.6rem;
-  border-radius: 6px;
-  font-weight: 700;
-}
-
-.fraction.inline {
-  background: #eef4f8;
-  color: #1f2d3d;
-}
-
-.badge {
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  font-weight: 700;
-  font-size: 0.8rem;
-  color: white;
-}
-
-.badge-graded {
-  background: #42b883;
-}
-
-.badge-pending {
-  background: #ff9800;
+.status-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  pointer-events: none;
 }
 
 .card-body {
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border-default);
 }
 
 .card-title {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
 .card-title h3 {
   margin: 0;
-  font-size: 1.05rem;
-  color: #1f2d3d;
   flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .accuracy {
-  background: #eef4f8;
-  color: #1f2d3d;
-  padding: 0.3rem 0.6rem;
-  border-radius: 6px;
-  font-weight: 700;
-  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-1);
 }
 
-.title-metrics {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.accuracy--pending {
+  color: var(--text-3);
 }
 
 .card-meta {
   display: flex;
-  gap: 1rem;
+  gap: 12px;
   flex-wrap: wrap;
-  color: #5f6b7a;
-  font-size: 0.9rem;
+  font-size: var(--text-xs);
+  color: var(--text-3);
 }
 
-.card-meta strong {
-  color: #1f2d3d;
+.meta-correct { color: var(--status-correct); }
+.meta-wrong   { color: var(--status-wrong); }
+.meta-total   { color: var(--text-1); }
+
+/* 詳細檢視 Modal */
+.detail-modal {
+  width: 880px;
 }
 
-.answers {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.answer-row {
+.detail-grid {
   display: grid;
-  grid-template-columns: 70px 1fr 1fr 90px;
-  gap: 0.5rem;
-  align-items: center;
-  font-size: 0.9rem;
+  grid-template-columns: 5fr 4fr;
+  gap: 20px;
+  align-items: start;
 }
 
-.answer-index {
-  font-weight: 700;
-  color: #1f2d3d;
-}
-
-.answer-text {
-  color: #4a5563;
-}
-
-.answer-chip {
-  display: inline-block;
-  padding: 0.25rem 0.5rem;
-  border-radius: 999px;
-  font-weight: 700;
-  text-align: center;
-}
-
-.chip-correct {
-  background: #e8f5e9;
-  color: #2f9b6f;
-}
-
-.chip-wrong {
-  background: #fdecea;
-  color: #d93025;
-}
-
-.chip-pending {
-  background: #fff7e6;
-  color: #c47c00;
-}
-
-.modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 1rem;
-}
-
-.modal-content {
-  background: white;
-  border-radius: 12px;
-  padding: 1.25rem;
-  max-width: 1100px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  position: relative;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.2);
-}
-
-.modal-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  border: none;
-  background: #ff5252;
-  color: white;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  font-size: 1.2rem;
-  cursor: pointer;
+@media (max-width: 800px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .modal-image-wrap {
-  position: relative;
-  background: #f8fafc;
-  border: 1px solid #e4e9ed;
-  border-radius: 8px;
-  overflow: hidden;
-  width: 100%;
-  max-width: 800px;
-  aspect-ratio: 4 / 3;
-  margin: 0 auto;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  padding: 20px;
 }
 
-.modal-image-wrap img {
+.modal-image-inner {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: #fff;
+  border: 1px solid var(--border-default);
+}
+
+.modal-image-inner img {
   width: 100%;
   height: 100%;
   display: block;
@@ -1056,27 +900,66 @@ h1 {
 
 .bbox-tag {
   position: absolute;
-  top: 0;
-  left: 0;
-  background: rgba(31, 45, 61, 0.8);
-  color: white;
-  padding: 0.2rem 0.4rem;
-  font-size: 0.8rem;
-  border-bottom-right-radius: 6px;
+  top: -1px;
+  left: -1px;
+  transform: translateY(-100%);
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 3px 3px 3px 0;
+  font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
-.modal-answers {
-  margin-top: 1rem;
+.bbox--correct .bbox-tag { background: var(--status-correct); }
+.bbox--wrong .bbox-tag   { background: var(--status-wrong); }
+.bbox--pending .bbox-tag { background: var(--status-pending); }
+
+/* 逐題對照列表 */
+.answer-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.answer-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 1fr 72px;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--gray-100);
+  font-size: var(--text-sm);
+}
+
+.answer-row:last-child {
+  border-bottom: none;
+}
+
+.answer-index {
+  font-family: var(--font-mono);
+  color: var(--text-3);
+}
+
+.answer-text {
+  color: var(--text-2);
+}
+
+.answer-text strong {
+  color: var(--text-1);
+  font-weight: var(--weight-medium);
+  font-family: var(--font-mono);
+}
+
+.answer-chip {
+  justify-self: end;
 }
 
 @media (max-width: 768px) {
   .page-header {
     flex-direction: column;
-  }
-
-  .header-actions {
-    width: 100%;
-    justify-content: flex-start;
+    align-items: flex-start;
   }
 }
 </style>
