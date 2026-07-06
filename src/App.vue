@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
 import { Upload, SquareDashedMousePointer, LayoutGrid } from 'lucide-vue-next'
+import FeedbackHost from './components/FeedbackHost.vue'
 </script>
 
 <template>
@@ -30,6 +31,8 @@ import { Upload, SquareDashedMousePointer, LayoutGrid } from 'lucide-vue-next'
     <main>
       <RouterView />
     </main>
+
+    <FeedbackHost />
   </div>
 </template>
 

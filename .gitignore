@@ -37,3 +37,7 @@ __screenshots__/
 
 # Architecture diagrams
 *.svg
+
+# Crash dumps / local test payloads
+*.stackdump
+body.json
