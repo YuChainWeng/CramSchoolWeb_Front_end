@@ -232,6 +232,7 @@ import {
 } from 'lucide-vue-next'
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../constants'
 import { setResultsData, getStoreData, hasData, updateStudentImages, updateMasterImage } from '../stores/resultsStore'
+import { showToast, askConfirm } from '../composables/useFeedback'
 
 const DEFAULT_CLASS = '答案區'
 
@@ -350,12 +351,6 @@ onMounted(async () => {
         role: 'master'
       }
     }
-  }
-  if (studentImages.value.length === 0) {
-    studentImages.value = [
-      { name: 'sample1.jpg', preview: '', labels: [], predictionsLoaded: false, role: 'student' },
-      { name: 'sample2.jpg', preview: '', labels: [], predictionsLoaded: false, role: 'student' }
-    ]
   }
   currentImageIndex.value = 0
 
@@ -508,9 +503,9 @@ const chooseOcrValue = (res: { chinese?: string; digit?: string } | string) => {
   return digit || chinese
 }
 
-const runOCRForImage = async (img: ImageData, target: 'student' | 'master') => {
+const runOCRForImage = async (img: ImageData, target: 'student' | 'master'): Promise<boolean> => {
   // 檢查傳入的圖片是否有效
-  if (!img || !img.preview || !img.labels || img.labels.length === 0) return;
+  if (!img || !img.preview || !img.labels || img.labels.length === 0) return false;
 
   try {
     // 1. 準備資料
@@ -548,7 +543,6 @@ const runOCRForImage = async (img: ImageData, target: 'student' | 'master') => {
 
     // 3. 將回傳結果填入 labels
     const results = resultData.ocr_results || resultData.results || [];
-    console.log('OCR 回傳結果:', JSON.stringify(results, null, 2)) // 偵錯用
 
     if (Array.isArray(results)) {
       results.forEach((res: any, index: number) => {
@@ -561,7 +555,6 @@ const runOCRForImage = async (img: ImageData, target: 'student' | 'master') => {
             targetLabel.expectedAnswer = typeof googleText === 'string' ? googleText : ''
             targetLabel.ocrCandidates = undefined
             targetLabel.recognizedAnswer = undefined
-            console.log(`Label ${index}: expectedAnswer = "${targetLabel.expectedAnswer}"`) // 偵錯用
           } else {
             const candidate =
               res && (res.chinese !== undefined || res.digit !== undefined)
@@ -581,11 +574,12 @@ const runOCRForImage = async (img: ImageData, target: 'student' | 'master') => {
           }
         }
       });
-      console.log(`圖片 ${img.name} 背景 OCR 完成`);
     }
+    return true
 
   } catch (error) {
     console.warn(`圖片 ${img.name} OCR 失敗 (不影響標註):`, error);
+    return false
   }
 };
 
@@ -682,12 +676,14 @@ const loadImage = () => {
   if (currentImage.value.preview) {
     img.src = currentImage.value.preview
   } else {
+    canvas.value.width = CANVAS_WIDTH
+    canvas.value.height = CANVAS_HEIGHT
     ctx.fillStyle = '#f0f0f0'
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
     ctx.fillStyle = '#666'
-    ctx.font = '24px Arial'
+    ctx.font = '24px "Noto Sans TC", sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText('No image', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2)
+    ctx.fillText('沒有可顯示的圖片', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2)
   }
 }
 
@@ -928,7 +924,7 @@ const fetchPredictionsForImage = async (img: ImageData) => {
     img.predictionsLoaded = true
   } catch (error: any) {
     console.error('Error fetching predictions:', error)
-    img.predictionError = error?.message || 'Unable to fetch predictions'
+    img.predictionError = '自動偵測失敗，請確認連線後重試'
   } finally {
     img.isPredicting = false
   }
@@ -1009,13 +1005,21 @@ const removeLabel = (index: number) => {
   }
 }
 
-const clearLabels = () => {
+const clearLabels = async () => {
   const img = currentImage.value
-  if (img && img.labels) {
-    img.labels = []
-    selectedLabelIndex.value = -1
-    loadImage()
-  }
+  if (!img || !img.labels || img.labels.length === 0) return
+
+  const confirmed = await askConfirm({
+    title: '清除標註',
+    message: `確定要清除「${img.name}」的全部 ${img.labels.length} 個標註嗎？`,
+    confirmText: '清除',
+    danger: true,
+  })
+  if (!confirmed) return
+
+  img.labels = []
+  selectedLabelIndex.value = -1
+  loadImage()
 }
 
 const getCanvasCoords = (event: MouseEvent) => {
@@ -1056,13 +1060,30 @@ const stopPan = () => {
   isPanning.value = false
 }
 
+// 以指定的畫布座標為中心縮放（維持該點在畫面上的位置不動）
+const zoomAt = (centerX: number, centerY: number, targetZoom: number) => {
+  const oldZoom = zoom.value
+  const newZoom = Math.min(3, Math.max(0.2, targetZoom))
+  if (newZoom === oldZoom) return
+  panX.value = centerX - ((centerX - panX.value) / oldZoom) * newZoom
+  panY.value = centerY - ((centerY - panY.value) / oldZoom) * newZoom
+  zoom.value = newZoom
+  loadImage()
+}
+
 const handleWheel = (event: WheelEvent) => {
-  changeZoom(event.deltaY < 0 ? 0.05 : -0.05)
+  if (!canvas.value) return
+  // 滾輪縮放以游標位置為中心
+  const rect = canvas.value.getBoundingClientRect()
+  const scaleX = rect.width > 0 ? canvas.value.width / rect.width : 1
+  const scaleY = rect.height > 0 ? canvas.value.height / rect.height : 1
+  const centerX = (event.clientX - rect.left) * scaleX
+  const centerY = (event.clientY - rect.top) * scaleY
+  zoomAt(centerX, centerY, zoom.value + (event.deltaY < 0 ? 0.1 : -0.1))
 }
 
 const changeZoom = (delta: number) => {
-  zoom.value = Math.min(3, Math.max(0.2, zoom.value + delta))
-  loadImage()
+  zoomAt(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, zoom.value + delta)
 }
 
 const resetView = () => {
@@ -1083,13 +1104,18 @@ const previousImage = () => {
 }
 
 // [修改] 將當前圖片的標註框套用到所有圖片（不執行OCR）
-const applyLabelsToAll = () => {
+const applyLabelsToAll = async () => {
   // 1. 基本檢查
   if (!currentImage.value?.labels || currentImage.value.labels.length === 0) return
 
   const totalTargets = studentImages.value.length + (masterKeyImage.value ? 1 : 0)
-  const confirmMsg = `確定要將目前的 ${currentImage.value.labels.length} 個標註框套用到所有 ${totalTargets} 張圖片嗎？\n\n注意：這將會覆蓋其他圖片現有的標註！`
-  if (!confirm(confirmMsg)) return
+  const confirmed = await askConfirm({
+    title: '套用標註到全部圖片',
+    message: `確定要將目前的 ${currentImage.value.labels.length} 個標註框套用到所有 ${totalTargets} 張圖片嗎？\n這將會覆蓋其他圖片現有的標註。`,
+    confirmText: '套用',
+    danger: true,
+  })
+  if (!confirmed) return
 
   // 2. 準備「乾淨」的樣板
   const isMasterSource = currentImage.value.role === 'master'
@@ -1119,7 +1145,7 @@ const applyLabelsToAll = () => {
     img.predictionError = undefined
   })
 
-  alert('已成功套用標註框！')
+  showToast('已套用標註框到所有圖片', 'success')
 }
 
 // [新增] 排序標註：從右上到左下（先上到下，再右到左）
@@ -1168,10 +1194,10 @@ const autoSort = async () => {
 
   if (isVertical) {
     img.labels = sortLabelsVertical(img.labels)
-    alert('已偵測為直式考卷，排序完成（左半部優先，由上到下、由左到右）')
+    showToast('已偵測為直式考卷，排序完成（左半部優先，由上到下、由左到右）', 'success')
   } else {
     img.labels = sortLabelsRightToLeft(img.labels)
-    alert('已偵測為橫式考卷，排序完成（由上到下、由右到左）')
+    showToast('已偵測為橫式考卷，排序完成（由上到下、由右到左）', 'success')
   }
 
   loadImage()
@@ -1181,22 +1207,26 @@ const autoSort = async () => {
 const detectAnswers = async () => {
   // 只處理答案卷
   if (!masterKeyImage.value || !masterKeyImage.value.labels || masterKeyImage.value.labels.length === 0) {
-    alert('請先在答案卷建立標註框！')
+    showToast('請先在答案卷建立標註框', 'error')
     return
   }
 
   isProcessingOCR.value = true
 
   try {
-    await runOCRForImage(masterKeyImage.value, 'master')
+    const ok = await runOCRForImage(masterKeyImage.value, 'master')
 
     // 重新繪製畫面
     loadImage()
 
-    alert('答案卷偵測完成！正解已填入。')
+    if (ok) {
+      showToast('答案卷偵測完成，正解已填入', 'success')
+    } else {
+      showToast('答案偵測失敗，請確認連線後重試', 'error')
+    }
   } catch (error) {
     console.error('答案偵測失敗:', error)
-    alert('答案偵測過程中發生錯誤，請查看控制台。')
+    showToast('答案偵測過程中發生錯誤，請稍後再試', 'error')
   } finally {
     isProcessingOCR.value = false
   }

@@ -101,10 +101,9 @@
 
     <div v-if="masterFile || studentFiles.length > 0" class="action-buttons">
       <button @click="clearAll" class="ds-btn ds-btn--ghost">清除全部</button>
-      <button @click="uploadFiles" class="ds-btn ds-btn--primary" :disabled="isUploading">
-        <Loader2 v-if="isUploading" :size="16" class="ds-spin" />
-        <Upload v-else :size="16" />
-        {{ isUploading ? '上傳中…' : '上傳並標註' }}
+      <button @click="uploadFiles" class="ds-btn ds-btn--primary">
+        <Upload :size="16" />
+        上傳並標註
       </button>
     </div>
 
@@ -137,6 +136,11 @@
             <span class="ds-spinner"></span>
             <span>載入中…</span>
           </div>
+          <div v-else-if="templatesError" class="modal-status modal-status--error">
+            <AlertCircle :size="16" />
+            <span>無法連線到模板伺服器</span>
+            <button class="ds-btn ds-btn--sm" @click="loadTemplates(searchQuery)">重試</button>
+          </div>
           <div v-else-if="templates.length === 0" class="modal-status">
             {{ searchQuery ? '找不到符合的模板' : '尚無儲存的模板' }}
           </div>
@@ -156,7 +160,7 @@
                     class="template-name-input ds-input ds-input--sm"
                     v-model="editingName"
                     @keydown.enter="confirmEdit(t.id)"
-                    @keydown.escape="cancelEdit"
+                    @keydown.escape.stop="cancelEdit"
                   />
                   <button class="ds-btn ds-btn--ghost ds-btn--sm ds-btn--icon confirm-icon" @click="confirmEdit(t.id)" title="確認">
                     <Check :size="14" />
@@ -201,13 +205,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Upload, ClipboardList, FileText, Files, Search,
-  Pencil, Eye, X, Check, Loader2, ArrowLeft,
+  Pencil, Eye, X, Check, ArrowLeft, AlertCircle,
 } from 'lucide-vue-next'
 import { getStoreData, initializeFromUpload, hasData, clearAllData } from '../stores/resultsStore'
+import { showToast } from '../composables/useFeedback'
 
 
 interface FileWithPreview {
@@ -246,12 +251,12 @@ const masterFile = ref<FileWithPreview | null>(null)
 const studentFiles = ref<FileWithPreview[]>([])
 const isDraggingMaster = ref(false)
 const isDraggingStudents = ref(false)
-const isUploading = ref(false)
 
 // 模板相關
 const showTemplateModal = ref(false)
 const templates = ref<TemplateSummary[]>([])
 const isLoadingTemplates = ref(false)
+const templatesError = ref(false)
 const isFromTemplate = ref(false)
 const selectedTemplatePages = ref<TemplatePage[]>([])
 const masterExamName = ref('')
@@ -271,11 +276,31 @@ const deleteConfirmName = ref('')
 // 圖片預覽
 const previewImageUrl = ref('')
 
+// 返回上傳頁時保留先前的標註，避免再次進入標註頁時遺失
+const restoredMasterLabels = ref<any[]>([])
+const restoredStudentLabels = new Map<string, any[]>()
+
+// Esc 逐層關閉模板 modal（圖片預覽 → 刪除確認 → modal 本身）
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Escape' || !showTemplateModal.value) return
+  if (previewImageUrl.value) {
+    previewImageUrl.value = ''
+    return
+  }
+  if (deleteConfirmId.value !== null) {
+    cancelDelete()
+    return
+  }
+  closeTemplateModal()
+}
+
 onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
   if (hasData()) {
     const { studentImages, masterKeyImage } = getStoreData()
     if (masterKeyImage) {
       masterFile.value = { name: masterKeyImage.name, preview: masterKeyImage.preview }
+      restoredMasterLabels.value = masterKeyImage.labels ?? []
       if (masterKeyImage.preview?.startsWith('/api/exam-templates')) {
         isFromTemplate.value = true
       } else {
@@ -284,8 +309,15 @@ onMounted(() => {
     }
     if (studentImages.length > 0) {
       studentFiles.value = studentImages.map(img => ({ name: img.name, preview: img.preview }))
+      studentImages.forEach(img => {
+        if (img.labels && img.labels.length > 0) restoredStudentLabels.set(img.name, img.labels)
+      })
     }
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
 })
 
 const triggerFileInput = (target: 'master' | 'students') => {
@@ -317,11 +349,21 @@ const handleFileSelect = (target: 'master' | 'students', event: Event) => {
 }
 
 const addFiles = async (target: 'master' | 'students', files: File[]) => {
-  const sortedFiles = [...files]
-    .filter(file => file.type.startsWith('image/'))
+  const imageFiles = files.filter(file => file.type.startsWith('image/'))
+  const skippedCount = files.length - imageFiles.length
+  if (skippedCount > 0) {
+    showToast(`已略過 ${skippedCount} 個非圖片檔案`, 'info')
+  }
+
+  const sortedFiles = imageFiles
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
 
+  let duplicateCount = 0
   for (const file of sortedFiles) {
+    if (target === 'students' && studentFiles.value.some(f => f.name === file.name)) {
+      duplicateCount++
+      continue
+    }
     const preview = await new Promise<string>((resolve) => {
       const reader = new FileReader()
       reader.onload = (e) => resolve(e.target?.result as string)
@@ -332,9 +374,14 @@ const addFiles = async (target: 'master' | 'students', files: File[]) => {
       masterFile.value = previewData
       isFromTemplate.value = false
       selectedTemplatePages.value = []
+      restoredMasterLabels.value = []
     } else {
       studentFiles.value.push(previewData)
+      restoredStudentLabels.delete(file.name)
     }
+  }
+  if (duplicateCount > 0) {
+    showToast(`已略過 ${duplicateCount} 個同名檔案`, 'info')
   }
 }
 
@@ -343,10 +390,12 @@ const clearMaster = () => {
   isFromTemplate.value = false
   selectedTemplatePages.value = []
   masterExamName.value = ''
+  restoredMasterLabels.value = []
 }
 
 const removeStudent = (index: number) => {
-  studentFiles.value.splice(index, 1)
+  const removed = studentFiles.value.splice(index, 1)[0]
+  if (removed) restoredStudentLabels.delete(removed.name)
 }
 
 const clearAll = () => {
@@ -355,6 +404,8 @@ const clearAll = () => {
   isFromTemplate.value = false
   selectedTemplatePages.value = []
   masterExamName.value = ''
+  restoredMasterLabels.value = []
+  restoredStudentLabels.clear()
   clearAllData()
 }
 
@@ -362,15 +413,19 @@ const clearAll = () => {
 
 const loadTemplates = async (search = '') => {
   isLoadingTemplates.value = true
+  templatesError.value = false
   try {
     const url = search
       ? `/api/exam-templates?search=${encodeURIComponent(search)}`
       : '/api/exam-templates'
     const res = await fetch(url)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     templates.value = data.templates ?? []
-  } catch {
-    alert('無法連線到模板伺服器')
+  } catch (error) {
+    console.error('載入模板清單失敗:', error)
+    templates.value = []
+    templatesError.value = true
   } finally {
     isLoadingTemplates.value = false
   }
@@ -420,11 +475,13 @@ const confirmEdit = async (id: number) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ exam_name: name })
     })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     const t = templates.value.find(t => t.id === id)
-    if (t) t.exam_name = data.exam_name
-  } catch {
-    alert('改名失敗')
+    if (t) t.exam_name = data.exam_name ?? name
+  } catch (error) {
+    console.error('模板改名失敗:', error)
+    showToast('改名失敗，請稍後再試', 'error')
   }
   cancelEdit()
 }
@@ -444,10 +501,13 @@ const cancelDelete = () => {
 const executeDeleteTemplate = async () => {
   if (deleteConfirmId.value === null) return
   try {
-    await fetch(`/api/exam-templates/${deleteConfirmId.value}`, { method: 'DELETE' })
+    const res = await fetch(`/api/exam-templates/${deleteConfirmId.value}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     templates.value = templates.value.filter(t => t.id !== deleteConfirmId.value)
-  } catch {
-    alert('刪除失敗')
+    showToast('已刪除模板', 'success')
+  } catch (error) {
+    console.error('刪除模板失敗:', error)
+    showToast('刪除失敗，請稍後再試', 'error')
   }
   cancelDelete()
 }
@@ -463,6 +523,7 @@ const previewTemplate = (id: number) => {
 const selectTemplate = async (t: TemplateSummary) => {
   try {
     const res = await fetch(`/api/exam-templates/${t.id}`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data: TemplateDetail = await res.json()
 
     masterFile.value = {
@@ -470,10 +531,12 @@ const selectTemplate = async (t: TemplateSummary) => {
       preview: data.image_url
     }
     isFromTemplate.value = true
-    selectedTemplatePages.value = data.pages
+    selectedTemplatePages.value = data.pages ?? []
+    restoredMasterLabels.value = []
     closeTemplateModal()
-  } catch {
-    alert('載入模板失敗')
+  } catch (error) {
+    console.error('載入模板失敗:', error)
+    showToast('載入模板失敗，請稍後再試', 'error')
   }
 }
 
@@ -485,56 +548,54 @@ const formatDate = (iso: string) => {
 
 const uploadFiles = () => {
   if (!masterFile.value) {
-    alert('請先上傳標準答案卷。')
+    showToast('請先上傳標準答案卷', 'error')
     return
   }
   if (!isFromTemplate.value && !masterExamName.value.trim()) {
-    alert('請輸入考卷名稱後再繼續。')
+    showToast('請輸入考卷名稱後再繼續', 'error')
     return
   }
   if (studentFiles.value.length === 0) {
-    alert('請至少上傳一張學生考卷。')
+    showToast('請至少上傳一張學生考卷', 'error')
     return
   }
-  isUploading.value = true
 
-  setTimeout(() => {
-    isUploading.value = false
+  // 答案卷標註來源：剛選的模板 > 先前保留的標註 > 空（進標註頁自動偵測）
+  const masterLabels = selectedTemplatePages.value.length > 0
+    ? selectedTemplatePages.value.flatMap(page =>
+        page.annotations.map(ann => ({
+          class: ann.class,
+          x: ann.bbox[0],
+          y: ann.bbox[1],
+          width: ann.bbox[2],
+          height: ann.bbox[3],
+          expectedAnswer: ann.answer || '',
+          answer: ''
+        }))
+      )
+    : restoredMasterLabels.value
 
-    // 若來自模板，把 annotations 轉成 labels 格式
-    const masterLabels = isFromTemplate.value
-      ? selectedTemplatePages.value.flatMap(page =>
-          page.annotations.map(ann => ({
-            class: ann.class,
-            x: ann.bbox[0],
-            y: ann.bbox[1],
-            width: ann.bbox[2],
-            height: ann.bbox[3],
-            expectedAnswer: ann.answer || '',
-            answer: ''
-          }))
-        )
-      : []
+  const masterData = {
+    name: masterExamName.value.trim() || masterFile.value.name,
+    preview: masterFile.value.preview,
+    labels: masterLabels,
+    role: 'master' as const,
+    predictionsLoaded: isFromTemplate.value || masterLabels.length > 0
+  }
 
-    const masterData = {
-      name: masterExamName.value.trim() || masterFile.value!.name,
-      preview: masterFile.value!.preview,
-      labels: masterLabels,
-      role: 'master' as const,
-      predictionsLoaded: isFromTemplate.value
-    }
-
-    const filesData = studentFiles.value.map(f => ({
+  const filesData = studentFiles.value.map(f => {
+    const labels = restoredStudentLabels.get(f.name) ?? []
+    return {
       name: f.name,
       preview: f.preview,
-      labels: [],
+      labels,
       role: 'student' as const,
-      predictionsLoaded: false
-    }))
+      predictionsLoaded: labels.length > 0
+    }
+  })
 
-    initializeFromUpload(filesData, masterData)
-    router.push({ name: 'label' })
-  }, 1000)
+  initializeFromUpload(filesData, masterData)
+  router.push({ name: 'label' })
 }
 </script>
 
@@ -629,6 +690,10 @@ const uploadFiles = () => {
   text-align: center;
   color: var(--text-3);
   padding: 32px 0;
+}
+
+.modal-status--error {
+  color: var(--danger);
 }
 
 .template-list {

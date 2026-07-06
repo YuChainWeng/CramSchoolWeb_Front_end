@@ -3,35 +3,47 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # 考卷影像以 base64 JSON 傳送，放寬請求大小限制
+    client_max_body_size 50m;
+
+    # 靜態資源壓縮
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
     # SPA fallback
     location / {
         try_files $uri $uri/ /index.html;
     }
 
-    # OCR 服務 (預設 port 8083)
-    location /api/ocr_process/ {
-        proxy_pass ${OCR_URL}/ocr/;
+    # OCR 服務 (預設 port 8083)：前端呼叫 /api/ocr_process，後端路徑為 /ocr
+    location /api/ocr_process {
+        proxy_pass ${OCR_URL}/ocr;
+        proxy_read_timeout 120s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # YOLO 預測服務 (預設 port 8082)
-    location /api/predict/ {
-        proxy_pass ${PREDICT_URL}/predict/;
+    # YOLO 預測服務 (預設 port 8082)：前端呼叫 /api/predict，後端路徑為 /predict
+    location /api/predict {
+        proxy_pass ${PREDICT_URL}/predict;
+        proxy_read_timeout 120s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # Google OCR
-    location /ocr_google/ {
-        proxy_pass ${GOOGLE_OCR_URL}/ocr_google/;
+    # Google OCR：前端呼叫 /ocr_google，後端路徑相同
+    location /ocr_google {
+        proxy_pass ${GOOGLE_OCR_URL};
+        proxy_read_timeout 120s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # 模板儲存服務 (預設 port 8084)
-    location /api/exam-templates/ {
-        proxy_pass ${EXAM_TEMPLATE_URL}/api/exam-templates/;
+    # 模板儲存服務 (預設 port 8084)：路徑原樣轉發（含 /api/exam-templates/{id}/image）
+    location /api/exam-templates {
+        proxy_pass ${EXAM_TEMPLATE_URL};
+        proxy_read_timeout 60s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }

@@ -7,6 +7,9 @@
         <p class="ds-page-desc">顯示 YOLO 標籤配對正確答案的數量，並快速回顧 OCR 辨識結果。</p>
       </div>
       <div class="header-actions">
+        <button class="ds-btn" :disabled="scoredImages.length === 0" @click="exportCSV">
+          <Download :size="14" /> 匯出 CSV
+        </button>
         <button class="ds-btn" @click="goToUpload">重新上傳</button>
         <button class="ds-btn ds-btn--primary" @click="goToLabel">返回標記</button>
       </div>
@@ -35,6 +38,32 @@
         </div>
       </div>
 
+      <div v-if="ocrFailedCount > 0" class="ds-banner ds-banner--danger">
+        <AlertTriangle :size="16" />
+        <div class="ds-banner__body">
+          <strong>{{ ocrFailedCount }} 張考卷答案辨識失敗。</strong>請確認 OCR 服務連線後重試。
+        </div>
+        <button class="ds-btn ds-btn--sm banner-retry" @click="processStudentOCR">重新辨識</button>
+      </div>
+
+      <div class="stats-row">
+        <div class="ds-card stat-card">
+          <p class="ds-eyebrow stat-label">考卷數</p>
+          <p class="stat-value">{{ summary.total }}</p>
+        </div>
+        <div class="ds-card stat-card">
+          <p class="ds-eyebrow stat-label">已批改</p>
+          <p class="stat-value">{{ summary.gradedCount }}<span class="stat-sub"> / {{ summary.total }}</span></p>
+        </div>
+        <div class="ds-card stat-card">
+          <p class="ds-eyebrow stat-label">平均正確率</p>
+          <p class="stat-value">
+            <template v-if="summary.gradedCount > 0">{{ summary.avgAccuracy }}<span class="stat-sub">%</span></template>
+            <template v-else>—</template>
+          </p>
+        </div>
+      </div>
+
       <div class="image-grid">
         <article
           v-for="(img, idx) in scoredImages"
@@ -43,6 +72,8 @@
           role="button"
           tabindex="0"
           @click="openModal(idx)"
+          @keydown.enter.prevent="openModal(idx)"
+          @keydown.space.prevent="openModal(idx)"
         >
           <div class="thumb">
             <img :src="img.preview || placeholderImage" :alt="img.name" />
@@ -132,14 +163,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { AlertTriangle, X, Check, Clock } from 'lucide-vue-next'
+import { AlertTriangle, X, Check, Clock, Download } from 'lucide-vue-next'
+import { CANVAS_WIDTH as BASE_CANVAS_WIDTH, CANVAS_HEIGHT as BASE_CANVAS_HEIGHT } from '../constants'
 import { getResultsData, updateStudentImages, updateMasterImage } from '../stores/resultsStore'
 
 // OCR 處理狀態
 const isProcessingOCR = ref(false)
 const ocrProgress = ref({ current: 0, total: 0 })
+const ocrFailedCount = ref(0)
 
 interface LabelResult {
   recognizedAnswer?: string
@@ -185,8 +218,6 @@ const masterKeyImage = ref<IncomingImage | null>(null)
 const selectedIndex = ref<number | null>(null)
 const placeholderImage =
   'data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"200\" viewBox=\"0 0 320 200\" fill=\"none\"><rect width=\"320\" height=\"200\" rx=\"12\" fill=\"%23F0F4FD\"/><text x=\"50%\" y=\"50%\" dominant-baseline=\"middle\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"16\" fill=\"%236E7683\">預覽圖片</text></svg>'
-const BASE_CANVAS_WIDTH = 800
-const BASE_CANVAS_HEIGHT = 600
 
 const extractTextValue = (value: any, seen = new Set<any>()): string => {
   if (value === null || value === undefined) return ''
@@ -309,14 +340,15 @@ const normalizeImage = (
     }
   })
   const gradedLabels = labels.filter(label => typeof label.isCorrect === 'boolean')
-  const providedCorrect = typeof img.correctCount === 'number' ? img.correctCount : null
-  const totalLabels = typeof img.totalLabels === 'number' ? img.totalLabels : labels.length
+  const totalLabels = labels.length > 0
+    ? labels.length
+    : typeof img.totalLabels === 'number' ? img.totalLabels : 0
+  // 是否已批改：以逐題判定結果為準（避免重複 normalize 時把數字欄位誤判成已批改）
+  const graded = gradedLabels.length > 0
   const derivedCorrect = gradedLabels.filter(label => label.isCorrect).length
-  const correctCount = gradedLabels.length > 0 ? derivedCorrect : providedCorrect ?? derivedCorrect
-  const boundedCorrect = Math.min(Math.max(correctCount, 0), totalLabels || Number.MAX_SAFE_INTEGER)
-  const graded = providedCorrect !== null || gradedLabels.length > 0
+  const boundedCorrect = Math.min(Math.max(derivedCorrect, 0), totalLabels || Number.MAX_SAFE_INTEGER)
   const accuracy = totalLabels > 0 ? Math.round((boundedCorrect / totalLabels) * 100) : 0
-  const incorrectCount = Math.max(totalLabels - boundedCorrect, 0)
+  const incorrectCount = graded ? Math.max(totalLabels - boundedCorrect, 0) : 0
 
   return {
     ...img,
@@ -331,6 +363,15 @@ const normalizeImage = (
 }
 
 const STORAGE_KEY = 'results-page-data'
+
+// 圖片 base64 可能超過 sessionStorage 配額；寫入失敗只影響重新整理後的快取
+const persistResults = (payload: ResultsPayload) => {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+  } catch (err) {
+    console.warn('Unable to cache results in sessionStorage', err)
+  }
+}
 
 const extractPayload = (payload: any): ResultsPayload => {
   if (Array.isArray(payload)) {
@@ -391,10 +432,7 @@ const loadResultsFromState = () => {
       masterKeyImage.value = masterKey ?? null
       const expectedAnswers = getExpectedAnswers(masterKeyImage.value)
       scoredImages.value = merged.map((img) => normalizeImage(img, [...expectedAnswers]))
-      sessionStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ students: merged, masterKey: masterKeyImage.value })
-      )
+      persistResults({ students: merged, masterKey: masterKeyImage.value })
       return
     }
   }
@@ -409,10 +447,7 @@ const loadResultsFromState = () => {
       scoredImages.value = (students ?? []).map((img) =>
         normalizeImage(img, [...expectedAnswers])
       )
-      sessionStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ students: students ?? [], masterKey: masterKeyImage.value })
-      )
+      persistResults({ students: students ?? [], masterKey: masterKeyImage.value })
       return
     }
   }
@@ -456,9 +491,11 @@ const loadPreviewImage = (preview: string): Promise<HTMLImageElement> => {
   })
 }
 
-// 對單一學生卷執行 OCR
-const runStudentOCR = async (img: IncomingImage): Promise<IncomingImage> => {
-  if (!img.preview || !img.labels || img.labels.length === 0) return img
+// 對單一學生卷執行 OCR；ok 代表這張是否成功取得結果
+const runStudentOCR = async (
+  img: IncomingImage
+): Promise<{ image: IncomingImage; ok: boolean }> => {
+  if (!img.preview || !img.labels || img.labels.length === 0) return { image: img, ok: true }
 
   try {
     // 準備 base64 資料
@@ -488,8 +525,6 @@ const runStudentOCR = async (img: IncomingImage): Promise<IncomingImage> => {
       })
     }
 
-    console.log(`學生卷 ${img.name} OCR 送出:`, inputPayload.annotations.slice(0, 3)) // 偵錯用
-
     // 呼叫後端（30 秒逾時）
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000)
@@ -505,8 +540,6 @@ const runStudentOCR = async (img: IncomingImage): Promise<IncomingImage> => {
     if (!response.ok) throw new Error('OCR API Error')
     const resultData = await response.json()
     const results = resultData.ocr_results || resultData.results || []
-
-    console.log(`學生卷 ${img.name} OCR 回傳:`, results) // 偵錯用
 
     // 將 OCR 結果填入 labels
     if (Array.isArray(results)) {
@@ -524,19 +557,21 @@ const runStudentOCR = async (img: IncomingImage): Promise<IncomingImage> => {
           recognizedAnswer: candidate ? undefined : extractTextValue(res)
         }
       })
-      return { ...img, labels: updatedLabels }
+      return { image: { ...img, labels: updatedLabels }, ok: true }
     }
+    return { image: img, ok: false }
   } catch (error) {
     console.warn(`圖片 ${img.name} OCR 失敗:`, error)
+    return { image: img, ok: false }
   }
-  return img
 }
 
 // 對所有學生卷執行 OCR（並行處理，最多 5 張同時）
 const processStudentOCR = async () => {
-  if (scoredImages.value.length === 0) return
+  if (scoredImages.value.length === 0 || isProcessingOCR.value) return
 
   isProcessingOCR.value = true
+  ocrFailedCount.value = 0
   const expectedAnswers = getExpectedAnswers(masterKeyImage.value)
 
   // 篩選需要 OCR 的圖片（還沒有結果的）
@@ -554,6 +589,7 @@ const processStudentOCR = async () => {
   // 並行處理，每批最多 5 張，每張完成就更新進度
   const BATCH_SIZE = 5
   let completed = 0
+  let failed = 0
 
   for (let i = 0; i < toProcess.length; i += BATCH_SIZE) {
     const batch = toProcess.slice(i, i + BATCH_SIZE)
@@ -561,24 +597,73 @@ const processStudentOCR = async () => {
     // 同時處理這批圖片，每張完成就立即更新
     await Promise.all(
       batch.map(async ({ index, img }) => {
-        const processedImg = await runStudentOCR(img)
-        if (processedImg) {
-          scoredImages.value[index] = normalizeImage(processedImg, [...expectedAnswers])
-        }
+        const { image, ok } = await runStudentOCR(img)
+        scoredImages.value[index] = normalizeImage(image, [...expectedAnswers])
+        if (!ok) failed++
         completed++
         ocrProgress.value.current = completed
       })
     )
   }
 
+  ocrFailedCount.value = failed
   isProcessingOCR.value = false
 }
 
+// Esc 關閉詳細檢視 modal
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && selectedIndex.value !== null) {
+    closeModal()
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', handleKeydown)
   loadResultsFromState()
   // 載入資料後自動執行學生卷 OCR
   await processStudentOCR()
 })
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
+
+// 總覽統計
+const summary = computed(() => {
+  const total = scoredImages.value.length
+  const graded = scoredImages.value.filter((img) => img.graded)
+  const avgAccuracy = graded.length > 0
+    ? Math.round(graded.reduce((sum, img) => sum + img.accuracy, 0) / graded.length)
+    : 0
+  return { total, gradedCount: graded.length, avgAccuracy }
+})
+
+// 匯出成績 CSV（含 BOM 讓 Excel 正確辨識 UTF-8）
+const exportCSV = () => {
+  if (scoredImages.value.length === 0) return
+
+  const header = ['考卷', '狀態', '正確', '錯誤', '總題數', '正確率(%)']
+  const rows = scoredImages.value.map((img) => [
+    img.name,
+    img.graded ? '已批改' : '待批改',
+    String(img.correctCount),
+    String(img.incorrectCount),
+    String(img.totalLabels),
+    img.graded ? String(img.accuracy) : ''
+  ])
+  const escapeCell = (cell: string) => `"${cell.replace(/"/g, '""')}"`
+  const csv = '\ufeff' + [header, ...rows]
+    .map((row) => row.map(escapeCell).join(','))
+    .join('\r\n')
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `批改結果_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 const goToLabel = () => {
   // 確保傳回的資料包含所有必要屬性，避免 LabelView 重新偵測
@@ -734,6 +819,46 @@ const showMasterWarning = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.banner-retry {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* 總覽統計 */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 700px) {
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stat-card {
+  padding: 16px 20px;
+}
+
+.stat-label {
+  margin: 0 0 4px;
+}
+
+.stat-value {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-1);
+  line-height: var(--leading-tight);
+}
+
+.stat-sub {
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  color: var(--text-3);
 }
 
 /* 卡片網格 */
