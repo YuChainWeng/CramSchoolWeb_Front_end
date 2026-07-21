@@ -259,6 +259,7 @@ const isLoadingTemplates = ref(false)
 const templatesError = ref(false)
 const isFromTemplate = ref(false)
 const selectedTemplatePages = ref<TemplatePage[]>([])
+const selectedTemplateId = ref<number | null>(null)
 const masterExamName = ref('')
 
 // 搜尋
@@ -301,8 +302,9 @@ onMounted(() => {
     if (masterKeyImage) {
       masterFile.value = { name: masterKeyImage.name, preview: masterKeyImage.preview }
       restoredMasterLabels.value = masterKeyImage.labels ?? []
-      if (masterKeyImage.preview?.startsWith('/api/exam-templates')) {
+      if (masterKeyImage.templateId != null) {
         isFromTemplate.value = true
+        selectedTemplateId.value = masterKeyImage.templateId
       } else {
         masterExamName.value = masterKeyImage.name
       }
@@ -374,6 +376,7 @@ const addFiles = async (target: 'master' | 'students', files: File[]) => {
       masterFile.value = previewData
       isFromTemplate.value = false
       selectedTemplatePages.value = []
+      selectedTemplateId.value = null
       restoredMasterLabels.value = []
     } else {
       studentFiles.value.push(previewData)
@@ -389,6 +392,7 @@ const clearMaster = () => {
   masterFile.value = null
   isFromTemplate.value = false
   selectedTemplatePages.value = []
+  selectedTemplateId.value = null
   masterExamName.value = ''
   restoredMasterLabels.value = []
 }
@@ -403,6 +407,7 @@ const clearAll = () => {
   studentFiles.value = []
   isFromTemplate.value = false
   selectedTemplatePages.value = []
+  selectedTemplateId.value = null
   masterExamName.value = ''
   restoredMasterLabels.value = []
   restoredStudentLabels.clear()
@@ -532,6 +537,7 @@ const selectTemplate = async (t: TemplateSummary) => {
     }
     isFromTemplate.value = true
     selectedTemplatePages.value = data.pages ?? []
+    selectedTemplateId.value = t.id
     restoredMasterLabels.value = []
     closeTemplateModal()
   } catch (error) {
@@ -580,6 +586,7 @@ const uploadFiles = () => {
     preview: masterFile.value.preview,
     labels: masterLabels,
     role: 'master' as const,
+    templateId: selectedTemplateId.value,
     predictionsLoaded: isFromTemplate.value || masterLabels.length > 0
   }
 

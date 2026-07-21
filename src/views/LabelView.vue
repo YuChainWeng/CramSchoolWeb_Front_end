@@ -261,6 +261,8 @@ interface ImageData {
   isPredicting?: boolean
   predictionError?: string
   role: 'student' | 'master'
+  // 答案卷來自已儲存模板時的模板 id，用來判斷該新增還是更新模板
+  templateId?: number | null
 }
 
 const draggingLabelIndex = ref<number>(-1) // 記錄正在拖曳的標籤索引
@@ -1312,13 +1314,12 @@ const goToResults = () => {
     students: cleanStudents
   });
 
-  // 4. 背景儲存模板到後端（靜默，不擋換頁）
+  // 4. 背景儲存模板到後端（不擋換頁，失敗才提示）
   const master = masterKeyImage.value
-  const isFromTemplate = !!master?.preview?.startsWith('/api/exam-templates')
   const hasLabels = (master?.labels?.length ?? 0) > 0
   const hasAnswers = master?.labels?.some(l => l.expectedAnswer || l.answer)
 
-  if (master && hasLabels && hasAnswers && !isFromTemplate) {
+  if (master && hasLabels && hasAnswers) {
     const pages = [{
       image: master.name,
       annotations: (master.labels ?? []).map(label => ({
@@ -1327,15 +1328,26 @@ const goToResults = () => {
         answer: label.expectedAnswer || label.answer || ''
       }))
     }]
-    fetch('/api/exam-templates', {
-      method: 'POST',
+    // 來自既有模板就更新那一筆，否則新增一筆（圖片只在新增時上傳）
+    const fromTemplate = master.templateId != null
+    const url = fromTemplate ? `/api/exam-templates/${master.templateId}` : '/api/exam-templates'
+    const payload = fromTemplate
+      ? { exam_name: master.name, pages }
+      : { exam_name: master.name, image_base64: master.preview, pages }
+
+    fetch(url, {
+      method: fromTemplate ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        exam_name: master.name,
-        image_base64: master.preview,
-        pages
+      body: JSON.stringify(payload)
+    })
+      .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`) })
+      .catch(error => {
+        console.error('儲存模板失敗:', error)
+        showToast(
+          fromTemplate ? '模板更新失敗，但批改結果不受影響' : '模板儲存失敗，但批改結果不受影響',
+          'error'
+        )
       })
-    }).catch(() => {})
   }
 
   // 5. 換頁

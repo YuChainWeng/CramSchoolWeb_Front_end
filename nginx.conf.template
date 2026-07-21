@@ -3,6 +3,10 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Docker 內建 DNS。搭配下方 proxy_pass 使用變數，讓後端主機名在「請求當下」才解析：
+    # 否則 nginx 啟動時只要有一個後端沒起來就會整個拒絕啟動，前端跟著陪葬。
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
     # 考卷影像以 base64 JSON 傳送，放寬請求大小限制
     client_max_body_size 50m;
 
@@ -16,17 +20,19 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # OCR 服務 (預設 port 8083)：前端呼叫 /api/ocr_process，後端路徑為 /ocr
+    # OCR 服務：前端呼叫 /api/ocr_process，後端路徑為 /ocr
     location /api/ocr_process {
-        proxy_pass ${OCR_URL}/ocr;
+        set $ocr_upstream ${OCR_URL};
+        proxy_pass $ocr_upstream/ocr;
         proxy_read_timeout 120s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # YOLO 預測服務 (預設 port 8082)：前端呼叫 /api/predict，後端路徑為 /predict
+    # YOLO 預測服務：前端呼叫 /api/predict，後端路徑為 /predict
     location /api/predict {
-        proxy_pass ${PREDICT_URL}/predict;
+        set $predict_upstream ${PREDICT_URL};
+        proxy_pass $predict_upstream/predict;
         proxy_read_timeout 120s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -34,15 +40,17 @@ server {
 
     # Google OCR：前端呼叫 /ocr_google，後端路徑相同
     location /ocr_google {
-        proxy_pass ${GOOGLE_OCR_URL};
+        set $google_upstream ${GOOGLE_OCR_URL};
+        proxy_pass $google_upstream$request_uri;
         proxy_read_timeout 120s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # 模板儲存服務 (預設 port 8084)：路徑原樣轉發（含 /api/exam-templates/{id}/image）
+    # 模板儲存服務：路徑原樣轉發（含 /api/exam-templates/{id}/image 與 ?search=）
     location /api/exam-templates {
-        proxy_pass ${EXAM_TEMPLATE_URL};
+        set $template_upstream ${EXAM_TEMPLATE_URL};
+        proxy_pass $template_upstream$request_uri;
         proxy_read_timeout 60s;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

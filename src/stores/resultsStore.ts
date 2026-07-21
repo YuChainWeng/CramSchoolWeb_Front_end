@@ -9,6 +9,8 @@ interface ImageData {
   isPredicting?: boolean
   predictionError?: string
   role: 'student' | 'master'
+  // 答案卷來自已儲存模板時的模板 id，用來判斷該新增還是更新模板
+  templateId?: number | null
   [key: string]: any
 }
 
