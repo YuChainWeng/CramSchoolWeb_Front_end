@@ -56,9 +56,11 @@
           <p class="stat-value">{{ summary.gradedCount }}<span class="stat-sub"> / {{ summary.total }}</span></p>
         </div>
         <div class="ds-card stat-card">
-          <p class="ds-eyebrow stat-label">平均正確率</p>
+          <p class="ds-eyebrow stat-label">答對題數</p>
           <p class="stat-value">
-            <template v-if="summary.gradedCount > 0">{{ summary.avgAccuracy }}<span class="stat-sub">%</span></template>
+            <template v-if="summary.gradedCount > 0">
+              {{ summary.totalCorrect }}<span class="stat-sub"> / {{ summary.totalQuestions }} 題</span>
+            </template>
             <template v-else>—</template>
           </p>
         </div>
@@ -95,7 +97,7 @@
             <div class="card-title">
               <h3>{{ img.name }}</h3>
               <span class="accuracy" :class="{ 'accuracy--pending': !img.graded }">
-                {{ img.graded ? img.accuracy + '%' : '尚未批改' }}
+                {{ img.graded ? `答對 ${img.correctCount} / ${img.totalLabels} 題` : '尚未批改' }}
               </span>
             </div>
             <div class="card-meta">
@@ -262,6 +264,26 @@ const extractTextValue = (value: any, seen = new Set<any>()): string => {
 
 const normalizeAnswer = (value?: any) => extractTextValue(value).trim()
 
+// 比對用的正規化（只影響對錯判定，不影響畫面上顯示的原始文字）。
+// 答案卷上的選擇題正解常寫成「(3)」「（3）」「③」，學生圈選後辨識出來的卻是「3」，
+// 不統一格式會讓明明認對的題目被判成錯誤。
+const CIRCLED_DIGITS = '①②③④⑤⑥⑦⑧⑨⑩'
+
+const compareKey = (value?: any): string => {
+  let text = normalizeAnswer(value)
+  if (!text) return ''
+  // 全形英數 → 半形
+  text = text.replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) =>
+    String.fromCharCode(c.charCodeAt(0) - 0xfee0)
+  )
+  // 圈碼數字 → 阿拉伯數字
+  text = text.replace(/[①-⑩]/g, (c) => String(CIRCLED_DIGITS.indexOf(c) + 1))
+  // 去掉包覆用的括號與引號
+  text = text.replace(/[()（）[\]［］「」『』【】〔〕{}｛｝]/g, '')
+  // 去掉所有空白（含全形空白）
+  return text.replace(/[\s　]/g, '')
+}
+
 const extractOcrResultsArray = (payload: any) => {
   const results =
     payload?.ocr_results ??
@@ -316,8 +338,8 @@ const normalizeImage = (
     let normalizedRecognized = normalizeAnswer(label.recognizedAnswer)
     if (label.ocrCandidates) {
       if (expectedAnswer) {
-        // 有正解時，根據正解類型選擇
-        const isExpectedDigit = /^\d+$/.test(expectedAnswer.trim())
+        // 有正解時，根據正解類型選擇；先正規化才不會被「(3)」的括號干擾判斷
+        const isExpectedDigit = /^\d+$/.test(compareKey(expectedAnswer))
         normalizedRecognized = isExpectedDigit
           ? (label.ocrCandidates.digit || '').trim()
           : (label.ocrCandidates.chinese || '').trim()
@@ -329,7 +351,7 @@ const normalizeImage = (
 
     let isCorrect = label.isCorrect
     if (typeof isCorrect !== 'boolean' && expectedAnswer && normalizedRecognized) {
-      isCorrect = normalizedRecognized === normalizeAnswer(expectedAnswer)
+      isCorrect = compareKey(normalizedRecognized) === compareKey(expectedAnswer)
     }
     return {
       ...label,
@@ -629,27 +651,27 @@ onUnmounted(() => {
 })
 
 // 總覽統計
+// 以「答對題數」而非百分比呈現：考卷各題配分不同（每字 1 分、每格 2 分…），
+// 均分計算出來的百分比與老師實際給分對不起來，容易誤導。
 const summary = computed(() => {
   const total = scoredImages.value.length
   const graded = scoredImages.value.filter((img) => img.graded)
-  const avgAccuracy = graded.length > 0
-    ? Math.round(graded.reduce((sum, img) => sum + img.accuracy, 0) / graded.length)
-    : 0
-  return { total, gradedCount: graded.length, avgAccuracy }
+  const totalCorrect = graded.reduce((sum, img) => sum + img.correctCount, 0)
+  const totalQuestions = graded.reduce((sum, img) => sum + img.totalLabels, 0)
+  return { total, gradedCount: graded.length, totalCorrect, totalQuestions }
 })
 
 // 匯出成績 CSV（含 BOM 讓 Excel 正確辨識 UTF-8）
 const exportCSV = () => {
   if (scoredImages.value.length === 0) return
 
-  const header = ['考卷', '狀態', '正確', '錯誤', '總題數', '正確率(%)']
+  const header = ['考卷', '狀態', '答對題數', '答錯題數', '總題數']
   const rows = scoredImages.value.map((img) => [
     img.name,
     img.graded ? '已批改' : '待批改',
     String(img.correctCount),
     String(img.incorrectCount),
-    String(img.totalLabels),
-    img.graded ? String(img.accuracy) : ''
+    String(img.totalLabels)
   ])
   const escapeCell = (cell: string) => `"${cell.replace(/"/g, '""')}"`
   const csv = '\ufeff' + [header, ...rows]
