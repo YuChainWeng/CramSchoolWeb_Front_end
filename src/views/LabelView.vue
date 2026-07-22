@@ -242,6 +242,8 @@ interface Label {
   y: number
   width: number
   height: number
+  // YOLO 回傳的信心值，用來比較不同影像的偵測品質
+  confidence?: number
   recognizedAnswer?: string
   answer?: string
   expectedAnswer?: string
@@ -367,55 +369,94 @@ onMounted(async () => {
 
   // 只有在沒有現有標註時才執行初始 YOLO 偵測
   if (!hasExistingLabels) {
-    // 用第一張學生卷做 YOLO 偵測（手寫優化模型），然後套用到答案卷和其他學生卷
-    const firstStudent = studentImages.value[0]
-    if (firstStudent && firstStudent.preview) {
-      await fetchPredictionsForImage(firstStudent)
-
-      if (firstStudent.labels && firstStudent.labels.length > 0) {
-        // 自動排序
-        const previewImg = await loadPreviewImage(firstStudent.preview)
-        const isVertical = previewImg.height > previewImg.width
-        firstStudent.labels = isVertical
-          ? sortLabelsVertical(firstStudent.labels)
-          : sortLabelsRightToLeft(firstStudent.labels)
-
-        // 套用到答案卷
-        if (masterKeyImage.value) {
-          masterKeyImage.value.labels = firstStudent.labels.map(label => ({
-            ...label,
-            answer: '',
-            recognizedAnswer: undefined,
-            expectedAnswer: undefined,
-            ocrCandidates: undefined,
-            isCorrect: undefined
-          }))
-          masterKeyImage.value.predictionsLoaded = true
-          masterKeyImage.value.predictionError = undefined
-        }
-
-        // 套用到其他學生卷
-        const sourceLabels = firstStudent.labels
-        studentImages.value.forEach((student, index) => {
-          if (index === 0) return // 跳過第一張（已經有了）
-          student.labels = sourceLabels.map(label => ({
-            ...label,
-            answer: '',
-            recognizedAnswer: undefined,
-            expectedAnswer: undefined,
-            ocrCandidates: undefined,
-            isCorrect: undefined
-          }))
-          student.predictionsLoaded = true
-          student.predictionError = undefined
-        })
-
-        // 偵測完成後重新繪製
-        loadImage()
-      }
-    }
+    await runInitialDetection()
   }
 });
+
+// 只複製框的位置，不帶走作答內容
+const cloneLabelsAsBlank = (labels: Label[]): Label[] =>
+  labels.map(label => ({
+    ...label,
+    answer: '',
+    recognizedAnswer: undefined,
+    expectedAnswer: undefined,
+    ocrCandidates: undefined,
+    isCorrect: undefined
+  }))
+
+// 偵測品質評分：以高信心框的數量為準，總框數作為平手時的次要依據。
+// 低信心的框多半是誤判，全部一起算會讓雜訊多的那張反而勝出。
+const HIGH_CONFIDENCE = 0.8
+
+const scoreDetection = (labels?: Label[]) => {
+  if (!labels || labels.length === 0) return { high: 0, total: 0 }
+  const high = labels.filter(l => (l.confidence ?? 1) >= HIGH_CONFIDENCE).length
+  return { high, total: labels.length }
+}
+
+/**
+ * 初始偵測：答案卷與第一張學生卷各偵測一次，採用結果較好的那一份，
+ * 再把框套用到批次內所有影像。
+ *
+ * 兩張影像雖然版面相同，但往往是不同來源（答案卷可能是教師用的電子檔，
+ * 學生卷則是掃描或影印），清晰度可能差距很大——實測同一份考卷，
+ * 乾淨的答案卷可偵測到 22 格，影印的學生卷只有 9 格。
+ * 固定只跑兩次推論，與班級人數無關，仍遠低於逐張偵測的成本。
+ */
+const runInitialDetection = async () => {
+  const master = masterKeyImage.value
+  const firstStudent = studentImages.value[0]
+
+  // 答案卷排在前面，平手時即優先採用（正解讀取需要框與答案卷對齊）
+  const candidates: ImageData[] = [master, firstStudent].filter(
+    (img): img is ImageData => !!img && !!img.preview
+  )
+
+  if (candidates.length === 0) return
+
+  for (const img of candidates) {
+    await fetchPredictionsForImage(img)
+  }
+
+  // 挑出偵測品質最好的來源
+  let source: ImageData | null = null
+  let bestScore = { high: -1, total: -1 }
+  for (const img of candidates) {
+    const s = scoreDetection(img.labels)
+    if (s.high > bestScore.high || (s.high === bestScore.high && s.total > bestScore.total)) {
+      source = img
+      bestScore = s
+    }
+  }
+
+  if (!source) return
+
+  if (!source.labels || source.labels.length === 0) return
+
+  // 依版面方向排序，使題號順序符合閱讀順序
+  const previewImg = await loadPreviewImage(source.preview)
+  const isVertical = previewImg.height > previewImg.width
+  source.labels = isVertical
+    ? sortLabelsVertical(source.labels)
+    : sortLabelsRightToLeft(source.labels)
+
+  const sourceLabels = source.labels
+
+  if (master && master !== source) {
+    master.labels = cloneLabelsAsBlank(sourceLabels)
+    master.predictionsLoaded = true
+    master.predictionError = undefined
+  }
+
+  studentImages.value.forEach(student => {
+    if (student === source) return
+    student.labels = cloneLabelsAsBlank(sourceLabels)
+    student.predictionsLoaded = true
+    student.predictionError = undefined
+  })
+
+  loadImage()
+}
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeydown)
@@ -918,6 +959,7 @@ const fetchPredictionsForImage = async (img: ImageData) => {
         y: boxY,
         width: boxWidth,
         height: boxHeight,
+        confidence: Number(detection?.confidence ?? detection?.conf) || undefined,
         answer: ''
       }
     })
