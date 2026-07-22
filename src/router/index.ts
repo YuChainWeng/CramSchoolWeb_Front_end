@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import UploadView from '../views/UploadView.vue'
 
-const APP_TITLE = '補習班自動批改系統'
+const APP_TITLE = '閱卷通'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

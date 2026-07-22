@@ -17,7 +17,8 @@ import FeedbackHost from './components/FeedbackHost.vue'
             <path d="M8.5 12.2 L11 14.7 L16.5 7.5" fill="none"
               stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
-          補習班自動批改系統
+          閱卷通
+          <span class="app-subtitle">手寫考卷自動批改系統</span>
         </span>
         <nav>
           <RouterLink to="/"><Upload :size="14" /> 上傳</RouterLink>
@@ -69,6 +70,16 @@ import FeedbackHost from './components/FeedbackHost.vue'
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 產品名後的說明文字，權重降低以突顯品牌名 */
+.app-subtitle {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  color: var(--text-3);
+  letter-spacing: 0;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-default);
 }
 
 .brand-mark {
